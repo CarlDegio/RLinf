@@ -1,0 +1,17 @@
+defaults:
+  - primebot_sft_openpi_pi05_mixed
+  - _self_
+
+runner:
+  logger:
+    experiment_name: "primebot_pi05_task09_fold_clothing_sft"
+
+data:
+  train_data_paths:
+    - /mnt/workspace/dataset/PrimeBotHouseholdByTask/train/task_09_fold_clothing
+  task_sampling_weights: [1.0]
+
+actor:
+  model:
+    openpi:
+      asset_id: primebot/task_09_fold_clothing

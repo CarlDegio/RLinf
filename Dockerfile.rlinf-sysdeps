@@ -1,0 +1,16 @@
+FROM primotion-registry-vpc.cn-beijing.cr.aliyuncs.com/ai-training/pytorch-cu128:torch2.11.0-py3.12-cu12.8.1-ubuntu22.04-v1-erdma-v1
+
+USER root
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Keep the Python environment on NAS; this image only adds the system packages
+# required by RLinf's embodied workloads.
+COPY requirements/sys_deps.sh /tmp/rlinf-sys-deps.sh
+RUN bash /tmp/rlinf-sys-deps.sh nvidia \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
+    && rm -f /tmp/rlinf-sys-deps.sh
+
+ENV NVIDIA_DRIVER_CAPABILITIES=all
+

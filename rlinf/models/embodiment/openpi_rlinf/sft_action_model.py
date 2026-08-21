@@ -65,7 +65,13 @@ class OpenPiPytorchSFTActionModel(OpenPiPytorchActionModel):
             )
         return self.sft_forward(**kwargs)
 
-    def sft_forward(self, data: Any) -> torch.Tensor:
+    def sft_forward(
+        self,
+        data: Any,
+        *,
+        train: bool = True,
+        return_per_sample_loss: bool = False,
+    ) -> torch.Tensor | dict[str, torch.Tensor]:
         """Compute the flow-matching SFT loss for one batch.
 
         ``data`` is either a ``(observation, actions)`` tuple or a dict with
@@ -73,19 +79,31 @@ class OpenPiPytorchSFTActionModel(OpenPiPytorchActionModel):
         the openpi transform pipeline, so ``actions`` arrive normalised and
         padded to the model action dim. Returns the scalar mean of the
         ``(B, action_horizon)`` per-timestep loss from :meth:`Pi0.compute_loss`
-        (which samples the flow-matching noise/time internally).
+        (which samples the flow-matching noise/time internally). Evaluation can
+        request the batch's per-sample means for exact distributed aggregation.
         """
         observation, actions = self._unpack_sft_batch(data)
         observation = self._observation_to_device(observation)
         actions = self._actions_to_device(actions)
         if not self.rlt_cfg.use_rlt:
             per_timestep_loss = self.model.compute_loss(
-                observation, actions, train=True
+                observation, actions, train=train
             )
+            if return_per_sample_loss:
+                per_sample_loss = per_timestep_loss.mean(dim=-1)
+                return {
+                    "loss": per_sample_loss.mean(),
+                    "per_sample_loss": per_sample_loss,
+                }
             return per_timestep_loss.mean()
 
+        if return_per_sample_loss:
+            raise NotImplementedError(
+                "Per-sample SFT evaluation is not supported with RLT enabled."
+            )
+
         per_timestep_loss, prefix_output, prefix_mask = (
-            self._sft_forward_with_rlt_prefix(observation, actions)
+            self._sft_forward_with_rlt_prefix(observation, actions, train=train)
         )
         vla_loss = per_timestep_loss.mean()
         rlt_loss, _ = self._rlt_forward(prefix_output, prefix_mask)
@@ -161,12 +179,14 @@ class OpenPiPytorchSFTActionModel(OpenPiPytorchActionModel):
         self,
         observation: Observation,
         actions: torch.Tensor,
+        *,
+        train: bool,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Compute VLA loss while retaining the prefix hidden states for RLT."""
         batch_size = actions.shape[0]
         device = actions.device
 
-        observation = pi0_model_module.preprocess_observation(observation, train=True)
+        observation = pi0_model_module.preprocess_observation(observation, train=train)
         embed_dtype = self.model.embed_dtype
         observation = pi0_model_module._observation_to_dtype(observation, embed_dtype)
         actions = actions.to(dtype=embed_dtype)

@@ -1,0 +1,105 @@
+defaults:
+  - model/pi0_5_rlinf@actor.model
+  - hybrid_engines/fsdp@actor.fsdp_config
+  - override hydra/job_logging: stdout
+  - _self_
+
+cluster:
+  num_nodes: 1
+  component_placement:
+    actor: all
+
+runner:
+  task_type: sft
+  logger:
+    log_path: "../results"
+    project_name: rlinf
+    experiment_name: "primebot_pi05_mixed_uniform_sft"
+    logger_backends: ["tensorboard"]
+    # logger_backends: ["tensorboard", "wandb"]
+    # wandb_entity: "carldegio"
+  max_epochs: -1
+  max_steps: 30000
+  val_check_interval: -1
+  save_interval: 5000
+
+data:
+  train_data_paths:
+    - /mnt/workspace/dataset/PrimeBotHouseholdByTask/train/task_01_open_washing_machine
+    - /mnt/workspace/dataset/PrimeBotHouseholdByTask/train/task_02_close_washing_machine
+    - /mnt/workspace/dataset/PrimeBotHouseholdByTask/train/task_03_put_items_in_washer
+    - /mnt/workspace/dataset/PrimeBotHouseholdByTask/train/task_09_fold_clothing
+  # The iterable loader samples a task for every frame. Equal weights prevent
+  # task_09 (about 76% of stored frames) from dominating mixed-task SFT.
+  task_sampling_weights: [1.0, 1.0, 1.0, 1.0]
+  # The globally last 100 episodes of every task are excluded from training.
+  # Chunk directory boundaries do not affect this split.
+  eval_episodes_per_task: 100
+  num_workers: 4
+  eval_num_workers: 0
+  prefetch_factor: 2
+
+actor:
+  group_name: "ActorGroup"
+  training_backend: "fsdp"
+  micro_batch_size: 8
+  eval_batch_size: 1
+  global_batch_size: 32
+  seed: 42
+
+  model:
+    precision: fp32
+    model_path: /mnt/workspace/base_model/pi05_base_rlinf_torch
+    model_type: openpi_rlinf
+    pi05: true
+    num_action_chunks: 30
+    action_dim: 25
+    num_steps: 5
+    add_value_head: false
+    openpi:
+      task: sft
+      config_name: pi05_primebot
+      num_images_in_input: 3
+      action_chunk: ${actor.model.num_action_chunks}
+      action_env_dim: ${actor.model.action_dim}
+      model_action_dim: 32
+      paligemma_variant: gemma_2b
+      action_expert_variant: gemma_300m
+      max_token_len: 512
+      discrete_state_input: true
+      assets_dir: /mnt/workspace/base_model/pi05_base_rlinf_torch
+      asset_id: primebot/mixed_uniform
+    # Keep SFT and later eval/inference on the same selected statistics. The
+    # single-task configs override asset_id and this interpolation follows it.
+    openpi_data:
+      norm_stats_path: ${actor.model.openpi.assets_dir}/${actor.model.openpi.asset_id}/norm_stats.json
+
+  optim:
+    lr: 2.5e-5
+    adam_beta1: 0.9
+    adam_beta2: 0.95
+    adam_eps: 1.0e-08
+    weight_decay: 1.0e-10
+    clip_grad: 1.0
+    total_training_steps: 30000
+    lr_warmup_steps: 1000
+    lr_scheduler: openpi_cosine
+    num_cycles: 0.5
+    min_lr: 2.5e-6
+
+  fsdp_config:
+    strategy: fsdp
+    sharding_strategy: full_shard
+    use_orig_params: true
+    gradient_checkpointing: true
+    gradient_checkpointing_use_reentrant: false
+    mixed_precision:
+      param_dtype: bf16
+      reduce_dtype: fp32
+      buffer_dtype: fp32
+
+reward:
+  use_reward_model: false
+
+critic:
+  use_critic_model: false

@@ -55,7 +55,10 @@ def main(cfg) -> None:
     )
 
     runner.init_workers()
-    runner.run()
+    if cfg.data.get("train_data_paths", None) is None:
+        runner.run_eval()
+    else:
+        runner.run()
 
 
 if __name__ == "__main__":

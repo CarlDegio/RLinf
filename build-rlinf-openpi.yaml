@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: liuzihao-build-rlinf-openpi-0-1
+  namespace: ai-training
+  labels:
+    app.kubernetes.io/name: rlinf-openpi-image-build
+    app.kubernetes.io/version: "0.1"
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rlinf-openpi-image-build
+        app.kubernetes.io/version: "0.1"
+    spec:
+      serviceAccountName: liuzihao
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: acr-pull
+      containers:
+        - name: buildkit
+          image: m.daocloud.io/docker.io/moby/buildkit:v0.30.0-rootless
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BUILDKITD_FLAGS
+              value: --oci-worker-no-process-sandbox
+            - name: DOCKER_CONFIG
+              value: /home/user/.docker
+          command:
+            - buildctl-daemonless.sh
+          args:
+            - build
+            - --frontend
+            - dockerfile.v0
+            - --local
+            - context=/mnt/workspace/liuzihao/project/RLinf
+            - --local
+            - dockerfile=/mnt/workspace/liuzihao/project/RLinf
+            - --opt
+            - filename=Dockerfile.rlinf-sysdeps
+            - --output
+            - type=image,name=primotion-registry-vpc.cn-beijing.cr.aliyuncs.com/ai-training/rlinf-openpi:0.1,push=true
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+            appArmorProfile:
+              type: Unconfined
+            runAsUser: 1000
+            runAsGroup: 1000
+          volumeMounts:
+            - name: workspace
+              mountPath: /mnt/workspace
+              readOnly: true
+            - name: buildkit-state
+              mountPath: /home/user/.local/share/buildkit
+            - name: registry-auth
+              mountPath: /home/user/.docker
+              readOnly: true
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: nas-workspace
+        - name: buildkit-state
+          emptyDir: {}
+        - name: registry-auth
+          secret:
+            secretName: acr-pull
+            items:
+              - key: .dockerconfigjson
+                path: config.json

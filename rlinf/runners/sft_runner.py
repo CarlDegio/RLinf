@@ -173,6 +173,7 @@ class SFTRunner:
         logging_metrics.update(time_metrics)
         logging_metrics.update(evaluate_metrics)
 
+        self.metric_logger.log(logging_metrics, self.global_step)
         logger.info(f"Eval metrics: {evaluate_metrics}")
         self.metric_logger.finish()
 

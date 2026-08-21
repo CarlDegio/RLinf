@@ -64,6 +64,9 @@ from rlinf.models.embodiment.openpi.dataconfig.metaworld_dataconfig import (
 from rlinf.models.embodiment.openpi.dataconfig.polaris_dataconfig import (
     LeRobotPolarisDroidDataConfig,
 )
+from rlinf.models.embodiment.openpi.dataconfig.primebot_dataconfig import (
+    LeRobotPrimeBotDataConfig,
+)
 from rlinf.models.embodiment.openpi.dataconfig.realworld_dataconfig import (
     LeRobotRealworldDataConfig,
 )
@@ -482,6 +485,27 @@ _CONFIGS = [
             "checkpoints/jax/pi0_base/params"
         ),
         pytorch_weight_path="checkpoints/torch/pi0_base",
+        num_train_steps=30_000,
+    ),
+    TrainConfig(
+        name="pi05_primebot",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=30,
+            action_dim=32,
+            max_token_len=512,
+            discrete_state_input=True,
+        ),
+        data=LeRobotPrimeBotDataConfig(
+            repo_id="PrimeBotHouseholdByTask",
+            base_config=DataConfig(prompt_from_task=True),
+            assets=AssetsConfig(
+                assets_dir="/mnt/workspace/base_model/pi05_base_rlinf_torch",
+                asset_id="primebot/mixed_uniform",
+            ),
+            use_quantile_norm=True,
+        ),
+        pytorch_weight_path="/mnt/workspace/base_model/pi05_base_rlinf_torch",
         num_train_steps=30_000,
     ),
     TrainConfig(

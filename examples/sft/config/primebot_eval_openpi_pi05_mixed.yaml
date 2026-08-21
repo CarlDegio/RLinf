@@ -1,0 +1,27 @@
+defaults:
+  - primebot_sft_openpi_pi05_mixed
+  - _self_
+
+runner:
+  logger:
+    experiment_name: "primebot_pi05_mixed_heldout_loss_eval"
+  max_epochs: -1
+  max_steps: 0
+  val_check_interval: -1
+  save_interval: -1
+
+data:
+  # A null train path makes train_vla_sft.py enter standalone evaluation.
+  train_data_paths: null
+  val_data_paths:
+    - /mnt/workspace/dataset/PrimeBotHouseholdByTask/train/task_01_open_washing_machine
+    - /mnt/workspace/dataset/PrimeBotHouseholdByTask/train/task_02_close_washing_machine
+    - /mnt/workspace/dataset/PrimeBotHouseholdByTask/train/task_03_put_items_in_washer
+    - /mnt/workspace/dataset/PrimeBotHouseholdByTask/train/task_09_fold_clothing
+  eval_episodes_per_task: 100
+  eval_num_workers: 0
+
+actor:
+  eval_batch_size: 4
+  fsdp_config:
+    gradient_checkpointing: false

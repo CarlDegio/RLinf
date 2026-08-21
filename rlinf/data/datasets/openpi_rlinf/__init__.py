@@ -43,10 +43,19 @@ def _load_official_openpi_sft_dataloader() -> SftDataLoaderBuilder:
     return build_official_openpi_sft_dataloader
 
 
+def _load_primebot_sft_dataloader() -> SftDataLoaderBuilder:
+    from rlinf.data.datasets.openpi_rlinf.primebot import (
+        build_primebot_sft_dataloader,
+    )
+
+    return build_primebot_sft_dataloader
+
+
 # Environment name -> lazy SFT dataloader builder.
 _SFT_DATALOADER_BUILDERS = {
     "behavior": _load_behavior_sft_dataloader,
     "dualfranka": _load_dual_franka_sft_dataloader,
+    "primebot": _load_primebot_sft_dataloader,
     "robotwin": _load_official_openpi_sft_dataloader,
 }
 
