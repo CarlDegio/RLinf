@@ -85,7 +85,7 @@
 步骤 3：开启代码同步（可选）
 ----------------------------
 
-当 driver 与 worker **不共享同一文件系统**（云边、异构机房等）时，可在 **启动训练脚本之前** 开启 Ray 任务级代码同步：
+当 driver 与 worker **不共享同一文件系统**\ （云边、异构机房等）时，可在 **启动训练脚本之前** 开启 Ray 任务级代码同步：
 由 driver 将 ``rlinf/`` 包打包进 ``runtime_env.py_modules``，worker 无需本地有一份相同 checkout。
 
 .. code-block:: bash
@@ -108,7 +108,7 @@
    * **勿在 ``rlinf/`` 下保存大文件**：同步会把启动节点上的 **整个本地 ``rlinf/`` 目录** 打包下发给其他 worker。请勿把日志、checkpoint、缓存、数据集等大文件或临时产物放在 ``rlinf/`` 下，否则会显著拖慢打包与传输。
    * **模型权重和Assets等资源准备**：**模型权重、模拟器 assets、数据集** 等 **不会** 随 code sync 同步。请在各 worker 节点 **提前下载** 到配置中写的路径，或通过 NFS/共享存储挂载，并确认该路径在 **所有节点** 上均可访问。
 
-上述变量在 RLinf 首次调用 ``ray.init``（``Cluster`` 初始化）时生效，请勿在训练进程之外提前手动 ``ray.init``。
+上述变量在 RLinf 首次调用 ``ray.init``\ （``Cluster`` 初始化）时生效，请勿在训练进程之外提前手动 ``ray.init``。
 
 
 步骤 4：检查集群状态
@@ -151,7 +151,7 @@
 
 启动节点须满足：
 
-* 本机已执行过 ``ray start``（``ray status`` 能显示完整集群）；
+* 本机已执行过 ``ray start``\ （``ray status`` 能显示完整集群）；
 * 能访问配置文件、模型与数据路径（或已配置共享存储 / code sync）；
 * 若启用代码同步，在 **同一终端** 已 ``export RLINF_CODE_WORKING_DIR=...``。
 
@@ -159,6 +159,54 @@
 
    使用 ``node_groups``、跨机型放置时，请参阅 :doc:`../concepts/placement` 与 :doc:`hetero`。
    云边场景下的 ``component_placement`` 示例见 :doc:`cloud_edge`。
+
+
+使用 Arena 运行 4 节点 π0.5 SFT
+-------------------------------
+
+将 PrimeBot π0.5 SFT 提交为 4 个 Arena Pod，每个 Pod 使用 8 张 GPU。
+仓库根目录下的 ``finetune_pods.sh`` 会在每个 Pod 启动一个 Ray 节点，等待
+全部 32 张 GPU 就绪，并且只在 Pod rank 0 启动训练 driver。
+
+.. warning::
+
+   每个 Pod 只运行一次 ``finetune_pods.sh``，不要再用 ``torchrun`` 包装它。
+   RLinf 通过 Ray 为每张 GPU 创建一个 FSDP actor；如果用 ``torchrun`` 包装，
+   每个 Pod 内会出现多个相互竞争的 Ray 集群。
+
+.. code-block:: bash
+
+   arena submit pytorch \
+     --name=liuzihao-pi05-sft-4node-32gpu \
+     --namespace=ai-training \
+     --workers=4 \
+     --gpus=8 \
+     --nproc-per-node=1 \
+     --gang \
+     --shell=bash \
+     --working-dir=/mnt/workspace/liuzihao/project/RLinf \
+     --image=primotion-registry-vpc.cn-beijing.cr.aliyuncs.com/ai-training/rlinf-openpi:0.1 \
+     --image-pull-policy=IfNotPresent \
+     --data=nas-workspace:/mnt/workspace \
+     "bash /mnt/workspace/liuzihao/project/RLinf/finetune_pods.sh"
+
+这个命令会执行以下操作：
+
+1. ``--nproc-per-node=1`` 让 Arena 在每个 Pod 中只运行一个脚本进程，
+   ``--gpus=8`` 仍会为 Ray 管理的 FSDP actor 分配全部 8 张 GPU。
+2. Arena 向每个 Pod 注入 ``PET_NODE_RANK``、``PET_NNODES``、
+   ``PET_MASTER_ADDR`` 和 ``PET_MASTER_PORT``。脚本会在启动 Ray 前导出
+   ``RLINF_NODE_RANK``，并复用 Arena master Service 端口作为 Ray head 端口。
+3. 每个 Pod 激活共享的 ``.venv``，并检查 Ray、Torch、CUDA 以及恰好 8 张
+   GPU 是否可用。
+4. Rank 0 等待恰好 4 个 Ray 节点和 32 张 GPU 就绪，然后以
+   ``cluster.num_nodes=4`` 启动 ``examples/sft/train_vla_sft.py``。Worker Pod
+   会保持运行直到 head 退出，随后每个 Pod 都会停止本地 Ray 进程。
+
+Hydra override 让基础 YAML 仍可用于单机训练。需要切换任务配置时，在命令前设置
+``CONFIG_NAME=<config_name>``。需要延长默认的 15 分钟集群加入超时时间时，设置
+``RAY_CLUSTER_TIMEOUT_SECONDS``。如果集群需要指定网卡，请在 Arena 命令中增加
+``--env=RLINF_COMM_NET_DEVICES=<interface>``。
 
 
 停止与重建集群
@@ -179,7 +227,7 @@
 
 **Worker 连不上 head**
 
-检查 ``<head_ip>`` 是否对其他节点 ping/ telnet 可达、安全组/iptables 是否放行 ``6379``，以及 head 是否使用了错误的 ``--node-ip-address``（例如绑定了 ``127.0.0.1``）。
+检查 ``<head_ip>`` 是否对其他节点 ping/ telnet 可达、安全组/iptables 是否放行 ``6379``，以及 head 是否使用了错误的 ``--node-ip-address``\ （例如绑定了 ``127.0.0.1``）。
 
 **ray status 节点数少于 cluster.num_nodes**
 

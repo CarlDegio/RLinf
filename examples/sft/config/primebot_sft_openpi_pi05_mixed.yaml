@@ -19,9 +19,9 @@ runner:
     # logger_backends: ["tensorboard", "wandb"]
     # wandb_entity: "carldegio"
   max_epochs: -1
-  max_steps: 30000
+  max_steps: 100
   val_check_interval: -1
-  save_interval: 5000
+  save_interval: 15000
 
 data:
   train_data_paths:
@@ -42,9 +42,9 @@ data:
 actor:
   group_name: "ActorGroup"
   training_backend: "fsdp"
-  micro_batch_size: 8
+  micro_batch_size: 16
   eval_batch_size: 1
-  global_batch_size: 32
+  global_batch_size: 512
   seed: 42
 
   model:

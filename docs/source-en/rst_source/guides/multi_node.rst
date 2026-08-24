@@ -172,6 +172,55 @@ The launch node must:
    Cloud-edge ``component_placement`` examples are in :doc:`cloud_edge`.
 
 
+Run 4-Node π0.5 SFT with Arena
+--------------------------------
+
+Submit the PrimeBot π0.5 SFT job as four Arena Pods with eight GPUs each. The
+repository-level ``finetune_pods.sh`` starts one Ray node per Pod, waits for all
+32 GPUs, and launches the training driver only on Pod rank 0.
+
+.. warning::
+
+   Run ``finetune_pods.sh`` once per Pod. Do not wrap it in ``torchrun``.
+   RLinf uses Ray to create one FSDP actor per GPU; wrapping the command would
+   start multiple competing Ray clusters in each Pod.
+
+.. code-block:: bash
+
+   arena submit pytorch \
+     --name=liuzihao-pi05-sft-4node-32gpu \
+     --namespace=ai-training \
+     --workers=4 \
+     --gpus=8 \
+     --nproc-per-node=1 \
+     --gang \
+     --shell=bash \
+     --working-dir=/mnt/workspace/liuzihao/project/RLinf \
+     --image=primotion-registry-vpc.cn-beijing.cr.aliyuncs.com/ai-training/rlinf-openpi:0.1 \
+     --image-pull-policy=IfNotPresent \
+     --data=nas-workspace:/mnt/workspace \
+     "bash /mnt/workspace/liuzihao/project/RLinf/finetune_pods.sh"
+
+What this does:
+
+1. ``--nproc-per-node=1`` makes Arena run one script process in each Pod, while
+   ``--gpus=8`` still allocates all eight GPUs for Ray-managed FSDP actors.
+2. Arena injects ``PET_NODE_RANK``, ``PET_NNODES``, ``PET_MASTER_ADDR``, and
+   ``PET_MASTER_PORT`` into each Pod. The script exports ``RLINF_NODE_RANK``
+   before starting Ray and reuses the Arena master Service port for the Ray head.
+3. Each Pod activates the shared ``.venv`` and verifies that Ray, Torch, CUDA,
+   and exactly eight GPUs are available.
+4. Rank 0 waits for exactly four Ray nodes and 32 GPUs. It then launches
+   ``examples/sft/train_vla_sft.py`` with ``cluster.num_nodes=4``. Worker Pods
+   remain alive until the head exits, and every Pod stops its local Ray process.
+
+The Hydra override keeps the base YAML usable for single-node runs. Override the
+task config with ``CONFIG_NAME=<config_name>`` before the command when needed.
+Use ``RAY_CLUSTER_TIMEOUT_SECONDS`` to extend the 15-minute cluster join timeout.
+If the cluster needs a specific NIC, add
+``--env=RLINF_COMM_NET_DEVICES=<interface>`` to the Arena command.
+
+
 Stopping and rebuilding the cluster
 -----------------------------------
 
