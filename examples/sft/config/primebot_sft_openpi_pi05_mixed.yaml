@@ -44,7 +44,7 @@ actor:
   training_backend: "fsdp"
   micro_batch_size: 16
   eval_batch_size: 1
-  global_batch_size: 512
+  global_batch_size: 128
   seed: 42
 
   model:
@@ -91,6 +91,12 @@ actor:
     strategy: fsdp
     sharding_strategy: full_shard
     use_orig_params: true
+    torch_compile:
+      enabled: true
+      backend: inductor
+      mode: default
+      fullgraph: false
+      dynamic: false
     gradient_checkpointing: true
     gradient_checkpointing_use_reentrant: false
     mixed_precision:

@@ -62,6 +62,46 @@ class FSDPVersion(str, Enum):
     FSDP2 = "fsdp2"
 
 
+def compile_fsdp_model(
+    model: torch.nn.Module, fsdp_config, logger=None
+) -> torch.nn.Module:
+    """Compile an FSDP-wrapped model in place when configured.
+
+    Args:
+        model: FSDP-wrapped model to compile.
+        fsdp_config: FSDP configuration containing an optional
+            ``torch_compile`` mapping.
+        logger: Optional logger for reporting the active compile options.
+
+    Returns:
+        The same model instance after enabling its compiled call path.
+
+    Raises:
+        ValueError: If FSDP1 compilation is requested without original
+            parameters, which PyTorch requires for ``torch.compile``.
+    """
+    compile_config = fsdp_config.get("torch_compile", {}) or {}
+    if not compile_config.get("enabled", False):
+        return model
+
+    if fsdp_config.get(
+        "strategy", FSDPVersion.FSDP.value
+    ) == FSDPVersion.FSDP.value and not fsdp_config.get("use_orig_params", False):
+        raise ValueError(
+            "FSDP1 torch.compile requires fsdp_config.use_orig_params=true."
+        )
+
+    compile_kwargs = {
+        key: compile_config[key]
+        for key in ("backend", "mode", "fullgraph", "dynamic", "options")
+        if key in compile_config and compile_config[key] is not None
+    }
+    model.compile(**compile_kwargs)
+    if logger is not None:
+        logger.info(f"[FSDP] torch.compile enabled with options: {compile_kwargs}")
+    return model
+
+
 def create_device_mesh(world_size):
     return init_device_mesh(
         Worker.torch_device_type, mesh_shape=(world_size,), mesh_dim_names=["fsdp"]

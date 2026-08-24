@@ -41,6 +41,7 @@ from rlinf.hybrid_engines.fsdp import (
 )
 from rlinf.hybrid_engines.fsdp.strategy.base import FSDPStrategyBase
 from rlinf.hybrid_engines.fsdp.utils import (
+    compile_fsdp_model,
     create_device_mesh,
     get_lr_scheduler,
 )
@@ -301,6 +302,7 @@ class FSDPModelManager:
         self.model = self._strategy.wrap_model(
             model=module, device_mesh=self._device_mesh
         )
+        self.model = compile_fsdp_model(self.model, self._cfg.fsdp_config, self._logger)
         self.optimizer = self.build_optimizer(
             model=self.model, enable_critic_warmup=self.critic_warmup_steps > 0
         )
