@@ -1,0 +1,199 @@
+# PyTorchJob equivalent of the Arena submission for RLinf SFT.
+#
+# Change the anchored value on metadata.name to rename the whole run. All
+# repeated Arena/coscheduling labels below reuse the same YAML anchor.
+#
+# Prerequisite: create Secret ai-training/wandb-api-key with key "api-key".
+# This manifest intentionally does not store the W&B API key in plaintext.
+#
+# The existing PyTorchJob with the same name must be removed before this
+# manifest is used to create a fresh job; applying it over running Pods will
+# not retrofit Linux capabilities into those Pods.
+
+apiVersion: kubeflow.org/v1
+kind: PyTorchJob
+metadata:
+  name: &run-name liuzihao-pi05-sft-4node-32gpu
+  namespace: ai-training
+  labels:
+    app: pytorchjob
+    chart: pytorchjob-0.5.2
+    createdBy: PyTorchJob
+    heritage: Helm
+    release: *run-name
+  annotations:
+    arena.kubeflow.org/username: system:serviceaccount:kube-system:liuzihao-admin
+    requestGPUsOfJobOwner: "32"
+spec:
+  backoffLimit: 0
+  cleanPodPolicy: Running
+  pytorchReplicaSpecs:
+    Master:
+      replicas: 1
+      restartPolicy: Never
+      template:
+        metadata:
+          name: *run-name
+          labels:
+            app: pytorchjob
+            chart: pytorchjob-0.5.2
+            createdBy: PyTorchJob
+            heritage: Helm
+            pod-group.scheduling.sigs.k8s.io/min-available: "4"
+            pod-group.scheduling.sigs.k8s.io/name: *run-name
+            release: *run-name
+          annotations:
+            arena.kubeflow.org/username: system:serviceaccount:kube-system:liuzihao-admin
+            requestGPUsOfJobOwner: "32"
+        spec:
+          imagePullSecrets:
+            - name: acr-pull
+          containers:
+            - name: pytorch
+              image: primotion-registry-vpc.cn-beijing.cr.aliyuncs.com/ai-training/rlinf-openpi:0.1
+              imagePullPolicy: IfNotPresent
+              workingDir: /mnt/workspace/liuzihao/project/RLinf
+              securityContext:
+                capabilities:
+                  add:
+                    - IPC_LOCK
+                    - SYS_RESOURCE
+              command:
+                - bash
+                - -c
+                - |
+                  set -e
+                  ulimit -l unlimited
+                  echo "memlock soft=$(ulimit -Sl), hard=$(ulimit -Hl)"
+                  exec bash /mnt/workspace/liuzihao/project/RLinf/finetune_pods.sh
+              env:
+                - name: NCCL_DEBUG
+                  value: INFO
+                - name: NCCL_DEBUG_SUBSYS
+                  value: INIT,NET
+                - name: NCCL_NET_GDR_LEVEL
+                  value: "1"
+                - name: NCCL_P2P_LEVEL
+                  value: "5"
+                - name: PET_NPROC_PER_NODE
+                  value: "1"
+                - name: WANDB_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: wandb-lzh-api-key
+                      key: api-key
+                - name: WANDB_CONSOLE
+                  value: "off"
+                - name: WANDB_MODE
+                  value: online
+                - name: WANDB_SILENT
+                  value: "true"
+                - name: gpus
+                  value: "8"
+                - name: workers
+                  value: "4"
+              resources:
+                requests:
+                  aliyun/erdma: 2
+                  nvidia.com/gpu: "8"
+                limits:
+                  aliyun/erdma: 2
+                  nvidia.com/gpu: "8"
+              volumeMounts:
+                - name: nas-workspace
+                  mountPath: /mnt/workspace
+                - name: dshm
+                  mountPath: /dev/shm
+          volumes:
+            - name: nas-workspace
+              persistentVolumeClaim:
+                claimName: nas-workspace
+            - name: dshm
+              emptyDir:
+                medium: Memory
+                sizeLimit: 128Gi
+
+    Worker:
+      replicas: 3
+      restartPolicy: Never
+      template:
+        metadata:
+          name: *run-name
+          labels:
+            app: pytorchjob
+            chart: pytorchjob-0.5.2
+            createdBy: PyTorchJob
+            heritage: Helm
+            pod-group.scheduling.sigs.k8s.io/min-available: "4"
+            pod-group.scheduling.sigs.k8s.io/name: *run-name
+            release: *run-name
+          annotations:
+            arena.kubeflow.org/username: system:serviceaccount:kube-system:liuzihao-admin
+            requestGPUsOfJobOwner: "32"
+        spec:
+          imagePullSecrets:
+            - name: acr-pull
+          containers:
+            - name: pytorch
+              image: primotion-registry-vpc.cn-beijing.cr.aliyuncs.com/ai-training/rlinf-openpi:0.1
+              imagePullPolicy: IfNotPresent
+              workingDir: /mnt/workspace/liuzihao/project/RLinf
+              securityContext:
+                capabilities:
+                  add:
+                    - IPC_LOCK
+                    - SYS_RESOURCE
+              command:
+                - bash
+                - -c
+                - |
+                  set -e
+                  ulimit -l unlimited
+                  echo "memlock soft=$(ulimit -Sl), hard=$(ulimit -Hl)"
+                  exec bash /mnt/workspace/liuzihao/project/RLinf/finetune_pods.sh
+              env:
+                - name: NCCL_DEBUG
+                  value: INFO
+                - name: NCCL_DEBUG_SUBSYS
+                  value: INIT,NET
+                - name: NCCL_NET_GDR_LEVEL
+                  value: "1"
+                - name: NCCL_P2P_LEVEL
+                  value: "5"
+                - name: PET_NPROC_PER_NODE
+                  value: "1"
+                - name: WANDB_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: wandb-lzh-api-key
+                      key: api-key
+                - name: WANDB_CONSOLE
+                  value: "off"
+                - name: WANDB_MODE
+                  value: online
+                - name: WANDB_SILENT
+                  value: "true"
+                - name: gpus
+                  value: "8"
+                - name: workers
+                  value: "4"
+              resources:
+                requests:
+                  aliyun/erdma: 2
+                  nvidia.com/gpu: "8"
+                limits:
+                  aliyun/erdma: 2
+                  nvidia.com/gpu: "8"
+              volumeMounts:
+                - name: nas-workspace
+                  mountPath: /mnt/workspace
+                - name: dshm
+                  mountPath: /dev/shm
+          volumes:
+            - name: nas-workspace
+              persistentVolumeClaim:
+                claimName: nas-workspace
+            - name: dshm
+              emptyDir:
+                medium: Memory
+                sizeLimit: 128Gi

@@ -68,6 +68,9 @@ OpenPI_RLinf 的 SFT 配置刻意将 **加载 dtype** 与 **计算 dtype** 分�
      actor:
        fsdp_config:
          gradient_checkpointing: True
+         gradient_checkpointing_use_reentrant: False
+         gradient_checkpointing_llm_layers: 18
+         gradient_checkpointing_vision_layers: 0
          mixed_precision:
            param_dtype: bf16     # FSDP 计算 dtype
            reduce_dtype: fp32    # 梯度 all-reduce 保持 fp32
@@ -75,8 +78,12 @@ OpenPI_RLinf 的 SFT 配置刻意将 **加载 dtype** 与 **计算 dtype** 分�
   ``param_dtype`` 是 FSDP 的 **计算** dtype，这里显式设为 bf16，而非从
   ``actor.model.precision`` 插值得到：加载 dtype 选择器与计算 dtype 是两个相互
   独立的开关，因此 fp32-master 加载仍然会以 bf16 进行计算。
-- 在双专家 Gemma + SigLIP 骨干上启用了梯度检查点
-  （``actor.fsdp_config.gradient_checkpointing: True``），以降低激活值显存占用。
+- ``gradient_checkpointing: True`` 会启用激活值 checkpoint；默认对双专家 Gemma
+  和 SigLIP 的全部层生效。可选字段 ``gradient_checkpointing_llm_layers`` 与
+  ``gradient_checkpointing_vision_layers`` 只 checkpoint 对应骨干的前 N 层，设为
+  ``0`` 表示关闭该骨干的 checkpoint。Pi0.5 中 LLM 的合法范围为 0--18，视觉编码器
+  的合法范围为 0--27。上面的示例保留全部 18 个 LLM 层的 checkpoint，同时避免
+  重算 SigLIP 编码器。
 - 学习率调度采用与参考实现完全一致的 warmup + 余弦衰减，通过
   ``actor.optim.lr_scheduler: openpi_cosine`` 选择（warmup 从
   ``peak / (warmup + 1)`` 开始，并在 ``total_training_steps`` 内余弦衰减到

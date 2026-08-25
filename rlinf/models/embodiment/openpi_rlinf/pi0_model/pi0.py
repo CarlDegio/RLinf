@@ -517,18 +517,43 @@ class Pi0(model.BaseModel):
         """Enable gradient checkpointing for memory efficiency.
 
         Args:
-            gradient_checkpointing_kwargs: Optional kwargs forwarded to the activation
-                checkpoint. Currently honors ``use_reentrant`` (default ``False``), so
-                the FSDP ``gradient_checkpointing_use_reentrant`` setting is respected.
+            gradient_checkpointing_kwargs: Optional activation-checkpoint settings.
+                ``llm_layers`` and ``vision_layers`` checkpoint the first N layers of
+                the corresponding backbone. Omitting a count checkpoints every layer.
         """
         kwargs = gradient_checkpointing_kwargs or {}
         use_reentrant = kwargs.get("use_reentrant", False)
+        llm_layers = self._validate_checkpoint_layer_count(
+            "llm_layers", kwargs.get("llm_layers"), len(self.llm.layers)
+        )
+        vision_layers = self._validate_checkpoint_layer_count(
+            "vision_layers",
+            kwargs.get("vision_layers"),
+            len(self.img.encoder.layers),
+        )
         self.llm.gradient_checkpointing = True
+        self.llm.gradient_checkpointing_layers = llm_layers
         self.llm.gradient_checkpointing_use_reentrant = use_reentrant
         self.img.encoder.gradient_checkpointing = True
+        self.img.encoder.gradient_checkpointing_layers = vision_layers
         self.img.encoder.gradient_checkpointing_use_reentrant = use_reentrant
 
     def gradient_checkpointing_disable(self):
         """Disable gradient checkpointing (used by the eval / no-recompute path)."""
         self.llm.gradient_checkpointing = False
         self.img.encoder.gradient_checkpointing = False
+
+    @staticmethod
+    def _validate_checkpoint_layer_count(
+        name: str, count: int | None, total_layers: int
+    ) -> int | None:
+        """Validate a partial-checkpoint layer count against the backbone depth."""
+        if count is None:
+            return None
+        if isinstance(count, bool) or not isinstance(count, int):
+            raise ValueError(f"{name} must be an integer, got {count!r}.")
+        if not 0 <= count <= total_layers:
+            raise ValueError(
+                f"{name} must be between 0 and {total_layers}, got {count}."
+            )
+        return count

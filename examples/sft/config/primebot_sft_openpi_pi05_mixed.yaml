@@ -15,11 +15,11 @@ runner:
     log_path: "../results"
     project_name: rlinf
     experiment_name: "primebot_pi05_mixed_uniform_sft"
-    logger_backends: ["tensorboard"]
-    # logger_backends: ["tensorboard", "wandb"]
-    # wandb_entity: "carldegio"
+    # logger_backends: ["tensorboard"]
+    logger_backends: ["tensorboard", "wandb"]
+    wandb_entity: "carldegio"
   max_epochs: -1
-  max_steps: 100
+  max_steps: 45000
   val_check_interval: -1
   save_interval: 15000
 
@@ -93,6 +93,8 @@ actor:
     use_orig_params: true
     gradient_checkpointing: true
     gradient_checkpointing_use_reentrant: false
+    gradient_checkpointing_llm_layers: 9 # 18
+    gradient_checkpointing_vision_layers: 0 # 27
     mixed_precision:
       param_dtype: bf16
       reduce_dtype: fp32

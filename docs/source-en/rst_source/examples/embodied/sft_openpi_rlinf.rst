@@ -78,6 +78,9 @@ from the **compute dtype**:
      actor:
        fsdp_config:
          gradient_checkpointing: True
+         gradient_checkpointing_use_reentrant: False
+         gradient_checkpointing_llm_layers: 18
+         gradient_checkpointing_vision_layers: 0
          mixed_precision:
            param_dtype: bf16     # FSDP compute dtype
            reduce_dtype: fp32    # gradient all-reduce stays fp32
@@ -86,9 +89,14 @@ from the **compute dtype**:
   rather than interpolated from ``actor.model.precision``. The load-dtype
   selector and compute dtype are independent, so an fp32-master load still
   computes in bf16.
-- Gradient checkpointing is enabled on the dual-expert Gemma + SigLIP backbone
-  through ``actor.fsdp_config.gradient_checkpointing: True`` to reduce
-  activation memory.
+- ``gradient_checkpointing: True`` enables activation checkpointing. By
+  default, every dual-expert Gemma and SigLIP layer is checkpointed. The
+  optional ``gradient_checkpointing_llm_layers`` and
+  ``gradient_checkpointing_vision_layers`` fields checkpoint only the first N
+  layers of each backbone; ``0`` disables checkpointing for that backbone. For
+  Pi0.5, the valid ranges are 0--18 for the LLM and 0--27 for the vision
+  encoder. The example above keeps all 18 LLM layers checkpointed while
+  avoiding recomputation of the SigLIP encoder.
 - The learning-rate schedule uses the reference warmup + cosine decay through
   ``actor.optim.lr_scheduler: openpi_cosine``. Warmup begins at
   ``peak / (warmup + 1)`` and the schedule cosine-decays to ``min_lr`` over

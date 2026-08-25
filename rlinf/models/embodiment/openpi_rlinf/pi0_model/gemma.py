@@ -546,6 +546,8 @@ class Module(nn.Module):
         )
 
         self.gradient_checkpointing = use_gradient_checkpointing
+        # None checkpoints every layer; an integer checkpoints the first N layers.
+        self.gradient_checkpointing_layers: int | None = None
         # Whether the activation checkpoint uses reentrant autograd. Configurable
         # via Pi0.gradient_checkpointing_enable(gradient_checkpointing_kwargs=...).
         self.gradient_checkpointing_use_reentrant = False
@@ -602,7 +604,12 @@ class Module(nn.Module):
         new_layer_kv_caches = []
         for i, layer in enumerate(self.layers):
             layer_kv = layer_kv_caches[i] if i < len(layer_kv_caches) else None
-            if self.gradient_checkpointing and self.training:
+            checkpoint_layer = self.gradient_checkpointing_layers
+            if (
+                self.gradient_checkpointing
+                and self.training
+                and (checkpoint_layer is None or i < checkpoint_layer)
+            ):
                 xs, new_kv = torch.utils.checkpoint.checkpoint(
                     layer,
                     xs,

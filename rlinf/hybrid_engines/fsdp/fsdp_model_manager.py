@@ -59,6 +59,23 @@ warnings.filterwarnings(
 )
 
 
+def _build_gradient_checkpointing_kwargs(
+    fsdp_config: DictConfig,
+) -> dict[str, bool | int]:
+    """Build activation-checkpoint kwargs from the FSDP configuration."""
+    kwargs: dict[str, bool | int] = {
+        "use_reentrant": fsdp_config.get("gradient_checkpointing_use_reentrant", True)
+    }
+    layer_count_keys = {
+        "gradient_checkpointing_llm_layers": "llm_layers",
+        "gradient_checkpointing_vision_layers": "vision_layers",
+    }
+    for config_key, kwarg_key in layer_count_keys.items():
+        if config_key in fsdp_config:
+            kwargs[kwarg_key] = fsdp_config[config_key]
+    return kwargs
+
+
 class FSDPModelManager:
     """
     FSDP Model Manager for RL training
@@ -275,20 +292,25 @@ class FSDPModelManager:
 
         # Enable gradient checkpointing if configured
         if self._cfg.fsdp_config.get("gradient_checkpointing", False):
-            use_reentrant = self._cfg.fsdp_config.get(
-                "gradient_checkpointing_use_reentrant", True
+            checkpointing_kwargs = _build_gradient_checkpointing_kwargs(
+                self._cfg.fsdp_config
             )
+            use_reentrant = checkpointing_kwargs["use_reentrant"]
+            partial_checkpointing = len(checkpointing_kwargs) > 1
             self._logger.info(
-                f"[FSDP] Enabling gradient checkpointing with use_reentrant={use_reentrant}"
+                "[FSDP] Enabling gradient checkpointing with "
+                f"use_reentrant={use_reentrant}, "
+                f"llm_layers={checkpointing_kwargs.get('llm_layers', 'all')}, "
+                f"vision_layers={checkpointing_kwargs.get('vision_layers', 'all')}"
             )
-            if use_reentrant:
+            if use_reentrant and not partial_checkpointing:
                 # use_reentrant=True is the default for HuggingFace models.
                 # We pass no arguments to stay compatible with openpi's
                 # PI0Pytorch.gradient_checkpointing_enable, which takes none.
                 module.gradient_checkpointing_enable()
             else:
                 module.gradient_checkpointing_enable(
-                    gradient_checkpointing_kwargs={"use_reentrant": use_reentrant}
+                    gradient_checkpointing_kwargs=checkpointing_kwargs
                 )
         else:
             self._logger.info("[FSDP] Gradient checkpointing is disabled")
