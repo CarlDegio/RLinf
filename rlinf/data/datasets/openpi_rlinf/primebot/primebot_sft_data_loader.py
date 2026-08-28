@@ -175,8 +175,10 @@ def build_primebot_sft_dataloader(
         raise ValueError("PrimeBot Pi0.5 must retain the pretrained 32-D action head.")
     if int(model_cfg.action_dim) != 25:
         raise ValueError("PrimeBot environment action_dim must be 25.")
-    if int(model_cfg.openpi.max_token_len) != 512:
-        raise ValueError("PrimeBot Pi0.5 max_token_len must be 512.")
+    if int(model_cfg.openpi.max_token_len) != 256:
+        raise ValueError("PrimeBot Pi0.5 max_token_len must be 256.")
+    if bool(model_cfg.openpi.discrete_state_input):
+        raise ValueError("PrimeBot Pi0.5 must not encode state into prompt tokens.")
 
     weights = OmegaConf.select(cfg, "data.task_sampling_weights", default=None)
     if weights is not None:
@@ -243,7 +245,7 @@ def build_primebot_sft_dataloader(
         roots=tuple(roots),
         action_dim=25,
         action_horizon=action_horizon,
-        max_token_len=512,
+        max_token_len=256,
         task_sampling_weights=dataset.task_sampling_weights,
         split=dataset.split,
         task_names=dataset.task_names,

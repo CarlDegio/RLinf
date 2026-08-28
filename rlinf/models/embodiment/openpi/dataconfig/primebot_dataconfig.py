@@ -33,6 +33,7 @@ class LeRobotPrimeBotDataConfig(DataConfigFactory):
     """Configure absolute-action PrimeBot transforms for Pi0.5."""
 
     use_quantile_norm: bool = True
+    action_norm_min_std: float = 0.01
 
     @override
     def create(
@@ -42,27 +43,22 @@ class LeRobotPrimeBotDataConfig(DataConfigFactory):
             raise ValueError(
                 "PrimeBot currently supports only the Pi0.5 transform path."
             )
-        if not getattr(model_config, "discrete_state_input", False):
-            raise ValueError(
-                "PrimeBot requires Pi0.5 discrete_state_input=True so all 89 state "
-                "dimensions are encoded in the prompt."
-            )
-
         data_transforms = _transforms.Group(
             inputs=[primebot_policy.PrimeBotInputs()],
             outputs=[primebot_policy.PrimeBotOutputs()],
         )
         # This is intentionally explicit instead of ModelTransformFactory: its
         # generic PadStatesAndActions rejects a state wider than action_dim. The
-        # crop below happens after tokenization, so the tokenizer still receives
-        # all 89 normalized state values.
+        # crop below happens after prompt tokenization. State is not serialized
+        # into the prompt and is retained only until the shared interface can be
+        # given its required 32-D structural placeholder.
         model_transforms = _transforms.Group(
             inputs=[
                 _transforms.InjectDefaultPrompt(None),
                 _transforms.ResizeImages(224, 224),
                 _transforms.TokenizePrompt(
                     _tokenizer.PaligemmaTokenizer(model_config.max_token_len),
-                    discrete_state_input=True,
+                    discrete_state_input=bool(model_config.discrete_state_input),
                 ),
                 primebot_policy.CropContinuousStateAfterTokenization(
                     model_config.action_dim

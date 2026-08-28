@@ -149,6 +149,15 @@ PaliGemma tokenizer 则由 OpenPI 的 ``ModelTransformFactory`` 在构建输入 
 时按基础模型配置加载，因此 ``openpi_rlinf`` SFT YAML 无需单独配置
 SentencePiece tokenizer 路径。
 
+PrimeBot Pi0.5 配置使用 ``max_token_len: 256`` 和
+``discrete_state_input: false``，因此不会把机器人 state 编码到语言 prompt 中；
+保留的连续 state 张量只用于满足共享模型接口的结构要求。将
+``openpi_data.action_norm_min_std`` 设为 ``0.01`` 后，标准差低于该阈值的 action
+维度保持原始尺度。transform 会在加载 norm stats 时一次性选出这些维度，并在训练
+归一化和推理反归一化阶段使用同一个 mask。训练时会先把每个 action 维度截断到对应的
+``q01``/``q99`` 区间；选中的低方差维度保留截断后的原始值，其他维度则在截断后继续
+执行归一化。
+
 文件系统路径
 ~~~~~~~~~~~~
 

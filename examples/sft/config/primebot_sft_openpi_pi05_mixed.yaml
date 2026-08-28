@@ -65,14 +65,16 @@ actor:
       model_action_dim: 32
       paligemma_variant: gemma_2b
       action_expert_variant: gemma_300m
-      max_token_len: 512
-      discrete_state_input: true
+      max_token_len: 256
+      discrete_state_input: false
       assets_dir: /mnt/workspace/base_model/pi05_base_rlinf_torch
       asset_id: primebot/mixed_uniform
     # Keep SFT and later eval/inference on the same selected statistics. The
     # single-task configs override asset_id and this interpolation follows it.
     openpi_data:
       norm_stats_path: ${actor.model.openpi.assets_dir}/${actor.model.openpi.asset_id}/norm_stats.json
+      # Keep raw supervision/output scale for dimensions with std below this value.
+      action_norm_min_std: 0.01
 
   optim:
     lr: 2.5e-5

@@ -13,7 +13,7 @@
 apiVersion: kubeflow.org/v1
 kind: PyTorchJob
 metadata:
-  name: &run-name liuzihao-pi05-sft-4node-32gpu
+  name: &run-name liuzihao-pi05-sft-4node-task2
   namespace: ai-training
   labels:
     app: pytorchjob

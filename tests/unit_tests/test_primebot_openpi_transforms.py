@@ -14,9 +14,15 @@
 
 """Tests for the PrimeBot Pi0.5 state/action contract."""
 
+import pathlib
+import types
+
 import numpy as np
 import torch
+from openpi.models.model import ModelType
+from openpi.training.config import DataConfig
 
+from rlinf.models.embodiment.openpi.dataconfig import primebot_dataconfig
 from rlinf.models.embodiment.openpi.policies.primebot_policy import (
     CropContinuousStateAfterTokenization,
     PrimeBotInputs,
@@ -61,11 +67,55 @@ def test_primebot_inputs_preserve_89d_state_and_pack_actions() -> None:
 def test_continuous_state_is_cropped_after_tokens_are_present() -> None:
     data = {
         "state": np.arange(89, dtype=np.float32),
-        "tokenized_prompt": np.arange(512),
+        "tokenized_prompt": np.arange(256),
     }
     transformed = CropContinuousStateAfterTokenization(32)(data)
     assert transformed["state"].shape == (32,)
-    assert transformed["tokenized_prompt"].shape == (512,)
+    assert transformed["tokenized_prompt"].shape == (256,)
+
+
+def test_primebot_prompt_uses_256_tokens_without_state(monkeypatch) -> None:
+    """The PrimeBot language prefix must not serialize the robot state."""
+    received = {}
+
+    class FakeTokenizer:
+        def __init__(self, max_len):
+            received["max_len"] = max_len
+
+        def tokenize(self, prompt, state):
+            received["prompt"] = prompt
+            received["state"] = state
+            return np.zeros(256, dtype=np.int64), np.ones(256, dtype=bool)
+
+    monkeypatch.setattr(
+        primebot_dataconfig._tokenizer, "PaligemmaTokenizer", FakeTokenizer
+    )
+    monkeypatch.setattr(
+        primebot_dataconfig.LeRobotPrimeBotDataConfig,
+        "create_base_config",
+        lambda self, assets_dirs, model_config: DataConfig(),
+    )
+    model_config = types.SimpleNamespace(
+        model_type=ModelType.PI05,
+        discrete_state_input=False,
+        max_token_len=256,
+        action_dim=32,
+    )
+
+    data_config = primebot_dataconfig.LeRobotPrimeBotDataConfig().create(
+        pathlib.Path("unused"), model_config
+    )
+    tokenize = data_config.model_transforms.inputs[2]
+    transformed = tokenize(
+        {"prompt": "open the washer", "state": np.arange(89, dtype=np.float32)}
+    )
+
+    assert received == {
+        "max_len": 256,
+        "prompt": "open the washer",
+        "state": None,
+    }
+    assert transformed["tokenized_prompt"].shape == (256,)
 
 
 def test_eval_sft_forward_returns_per_sample_action_loss() -> None:

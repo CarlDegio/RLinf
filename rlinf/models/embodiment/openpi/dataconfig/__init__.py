@@ -493,8 +493,8 @@ _CONFIGS = [
             pi05=True,
             action_horizon=30,
             action_dim=32,
-            max_token_len=512,
-            discrete_state_input=True,
+            max_token_len=256,
+            discrete_state_input=False,
         ),
         data=LeRobotPrimeBotDataConfig(
             repo_id="PrimeBotHouseholdByTask",
@@ -504,6 +504,7 @@ _CONFIGS = [
                 asset_id="primebot/mixed_uniform",
             ),
             use_quantile_norm=True,
+            action_norm_min_std=0.01,
         ),
         pytorch_weight_path="/mnt/workspace/base_model/pi05_base_rlinf_torch",
         num_train_steps=30_000,

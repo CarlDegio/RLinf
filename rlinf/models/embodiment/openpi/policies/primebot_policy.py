@@ -134,12 +134,12 @@ class PrimeBotOutputs(transforms.DataTransformFn):
 
 @dataclasses.dataclass(frozen=True)
 class CropContinuousStateAfterTokenization(transforms.DataTransformFn):
-    """Crop the continuous state only after Pi0.5 tokenized all 89 dimensions.
+    """Crop the continuous state after constructing the language prompt.
 
     Pi0.5 does not consume ``Observation.state`` in its action suffix, but the
     shared model interface still requires its final dimension to equal the
-    model action dimension (32). This transform must therefore be placed after
-    ``TokenizePrompt(discrete_state_input=True)``.
+    model action dimension (32). PrimeBot does not serialize state into the
+    prompt, so this value remains only as a structural placeholder.
     """
 
     model_action_dim: int
@@ -147,7 +147,7 @@ class CropContinuousStateAfterTokenization(transforms.DataTransformFn):
     def __call__(self, data: dict) -> dict:
         if "tokenized_prompt" not in data:
             raise ValueError(
-                "PrimeBot continuous state may only be cropped after prompt/state "
+                "PrimeBot continuous state may only be cropped after prompt "
                 "tokenization."
             )
         state = np.asarray(data["state"])

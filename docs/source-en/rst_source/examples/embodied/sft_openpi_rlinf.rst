@@ -166,6 +166,17 @@ PaliGemma tokenizer is loaded from the base-model configuration by OpenPI's
 ``openpi_rlinf`` SFT YAML does not need a separate SentencePiece tokenizer
 path.
 
+The PrimeBot Pi0.5 configs use ``max_token_len: 256`` and
+``discrete_state_input: false``. This keeps robot state out of the language
+prompt; the remaining continuous state tensor is only a structural placeholder
+for the shared model interface. Set ``openpi_data.action_norm_min_std`` to
+``0.01`` to keep action dimensions below that standard deviation on their raw
+scale. The transform selects these dimensions once from the loaded norm stats
+and applies the same mask during training normalization and inference
+unnormalization. During training, it first clips every action dimension to its
+``q01``/``q99`` interval. Selected low-variance dimensions keep the clipped raw
+value, while all other dimensions are normalized after clipping.
+
 Filesystem paths
 ~~~~~~~~~~~~~~~~
 

@@ -14,8 +14,96 @@
 
 from __future__ import annotations
 
+import dataclasses
+import logging
 import pathlib
 from typing import Any, Sequence
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+@dataclasses.dataclass(frozen=True)
+class NormalizeWithSelectiveActions:
+    """Clip and normalize actions while preserving low-variance dimensions."""
+
+    norm_stats: Any
+    use_quantiles: bool
+    action_norm_min_std: float
+    _transform: Any = dataclasses.field(init=False, repr=False)
+    _action_mask: np.ndarray = dataclasses.field(init=False, repr=False)
+    _action_q01: np.ndarray = dataclasses.field(init=False, repr=False)
+    _action_q99: np.ndarray = dataclasses.field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        from openpi import transforms
+
+        action_stats = self.norm_stats["actions"]
+        if action_stats.q01 is None or action_stats.q99 is None:
+            raise ValueError("Action q01/q99 statistics are required for clipping.")
+        action_std = np.asarray(action_stats.std)
+        object.__setattr__(self, "_action_mask", action_std < self.action_norm_min_std)
+        object.__setattr__(self, "_action_q01", np.asarray(action_stats.q01))
+        object.__setattr__(self, "_action_q99", np.asarray(action_stats.q99))
+        object.__setattr__(
+            self,
+            "_transform",
+            transforms.Normalize(self.norm_stats, use_quantiles=self.use_quantiles),
+        )
+
+    def __call__(self, data: dict) -> dict:
+        raw_actions = np.asarray(data["actions"]) if "actions" in data else None
+        if raw_actions is None:
+            return self._transform(data)
+
+        action_dim = raw_actions.shape[-1]
+        clipped_actions = np.clip(
+            raw_actions,
+            self._action_q01[..., :action_dim],
+            self._action_q99[..., :action_dim],
+        )
+        clipped_data = dict(data)
+        clipped_data["actions"] = clipped_actions
+        transformed = self._transform(clipped_data)
+        if np.any(self._action_mask):
+            actions = np.array(transformed["actions"], copy=True)
+            indices = np.flatnonzero(self._action_mask)
+            actions[..., indices] = clipped_actions[..., indices]
+            transformed["actions"] = actions
+        return transformed
+
+
+@dataclasses.dataclass(frozen=True)
+class UnnormalizeWithSelectiveActions:
+    """Unnormalize outputs while preserving raw low-variance action dimensions."""
+
+    norm_stats: Any
+    use_quantiles: bool
+    action_norm_min_std: float
+    _transform: Any = dataclasses.field(init=False, repr=False)
+    _action_mask: np.ndarray = dataclasses.field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        from openpi import transforms
+
+        action_std = np.asarray(self.norm_stats["actions"].std)
+        object.__setattr__(self, "_action_mask", action_std < self.action_norm_min_std)
+        object.__setattr__(
+            self,
+            "_transform",
+            transforms.Unnormalize(self.norm_stats, use_quantiles=self.use_quantiles),
+        )
+
+    def __call__(self, data: dict) -> dict:
+        raw_actions = np.asarray(data["actions"]) if "actions" in data else None
+        transformed = self._transform(data)
+        if raw_actions is not None and np.any(self._action_mask):
+            actions = np.array(transformed["actions"], copy=True)
+            indices = np.flatnonzero(self._action_mask)
+            actions[..., indices] = raw_actions[..., indices]
+            transformed["actions"] = actions
+        return transformed
 
 
 def build_openpi_transforms(
@@ -50,6 +138,7 @@ def build_openpi_transforms(
         config_name, model_path=str(model_path), data_kwargs=data_kwargs
     )
     upstream_model_config = train_config.model
+    action_norm_min_std = getattr(train_config.data, "action_norm_min_std", None)
 
     data_config = train_config.data.create(
         train_config.assets_dirs, upstream_model_config
@@ -90,15 +179,39 @@ def build_openpi_transforms(
             "for SFT set actor.model.openpi.assets_dir/asset_id to the stats dir."
         )
 
+    if action_norm_min_std is None:
+        normalize_transform = transforms.Normalize(
+            norm_stats, use_quantiles=data_config.use_quantile_norm
+        )
+        unnormalize_transform = transforms.Unnormalize(
+            norm_stats, use_quantiles=data_config.use_quantile_norm
+        )
+    else:
+        normalize_transform = NormalizeWithSelectiveActions(
+            norm_stats,
+            use_quantiles=data_config.use_quantile_norm,
+            action_norm_min_std=float(action_norm_min_std),
+        )
+        unnormalize_transform = UnnormalizeWithSelectiveActions(
+            norm_stats,
+            use_quantiles=data_config.use_quantile_norm,
+            action_norm_min_std=float(action_norm_min_std),
+        )
+        logger.info(
+            "Action dimensions kept on clipped raw scale (std < %g): %s",
+            action_norm_min_std,
+            np.flatnonzero(normalize_transform._action_mask).tolist(),
+        )
+
     input_transforms = [
         transforms.InjectDefaultPrompt(None),
         *data_config.data_transforms.inputs,
-        transforms.Normalize(norm_stats, use_quantiles=data_config.use_quantile_norm),
+        normalize_transform,
         *data_config.model_transforms.inputs,
     ]
     output_transforms = [
         *data_config.model_transforms.outputs,
-        transforms.Unnormalize(norm_stats, use_quantiles=data_config.use_quantile_norm),
+        unnormalize_transform,
         *data_config.data_transforms.outputs,
     ]
     return input_transforms, output_transforms
