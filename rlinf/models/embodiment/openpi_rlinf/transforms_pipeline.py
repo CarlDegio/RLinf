@@ -87,12 +87,15 @@ class UnnormalizeWithSelectiveActions:
     def __post_init__(self) -> None:
         from openpi import transforms
 
-        action_std = np.asarray(self.norm_stats["actions"].std)
+        action_stats = self.norm_stats["actions"]
+        action_std = np.asarray(action_stats.std)
         object.__setattr__(self, "_action_mask", action_std < self.action_norm_min_std)
         object.__setattr__(
             self,
             "_transform",
-            transforms.Unnormalize(self.norm_stats, use_quantiles=self.use_quantiles),
+            transforms.Unnormalize(
+                {"actions": action_stats}, use_quantiles=self.use_quantiles
+            ),
         )
 
     def __call__(self, data: dict) -> dict:

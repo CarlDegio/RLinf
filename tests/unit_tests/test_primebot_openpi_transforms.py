@@ -156,3 +156,87 @@ def test_eval_sft_forward_returns_per_sample_action_loss() -> None:
     torch.testing.assert_close(output["per_sample_loss"], torch.tensor([2.0, 4.0]))
     torch.testing.assert_close(output["loss"], torch.tensor(3.0))
     assert fake.model.train is False
+
+
+def test_eval_sft_forward_returns_denormalized_25d_action_chunks() -> None:
+    """The MSE path must sample actions and apply the deployment output scale."""
+
+    class FakeFlowModel:
+        action_dim = 32
+
+        @staticmethod
+        def sample_actions(observation, *, num_steps, rng):
+            del observation, rng
+            assert num_steps == 5
+            values = torch.arange(30 * 32, dtype=torch.float32)
+            return values.reshape(1, 30, 32)
+
+    class FakeSftModel:
+        model = FakeFlowModel()
+        num_steps = 5
+
+        @staticmethod
+        def _unpack_sft_batch(data):
+            del data
+            return "observation", torch.zeros(1, 30, 32)
+
+        @staticmethod
+        def _observation_to_device(observation):
+            return observation
+
+        @staticmethod
+        def _actions_to_device(actions):
+            return actions
+
+        @staticmethod
+        def denormalize_actions(actions):
+            return actions[..., :25] + 100.0
+
+    output = OpenPiPytorchSFTActionModel.sft_forward(
+        FakeSftModel(),
+        data=None,
+        train=False,
+        return_denormalized_actions=True,
+        rng=torch.Generator().manual_seed(42),
+    )
+
+    assert output["predicted_actions"].shape == (1, 30, 25)
+    torch.testing.assert_close(
+        output["predicted_actions"][0, 0],
+        torch.arange(25, dtype=torch.float32) + 100.0,
+    )
+
+
+def test_sft_action_model_applies_output_transform_per_sample() -> None:
+    """Sampled normalized actions must use the deployment inverse transform."""
+
+    def output_transform(data):
+        return {"actions": np.asarray(data["actions"])[..., :25] * 2.0 + 1.0}
+
+    fake = types.SimpleNamespace()
+    OpenPiPytorchSFTActionModel.setup_output_transform(fake, [output_transform])
+    normalized = torch.zeros(2, 30, 32)
+
+    denormalized = OpenPiPytorchSFTActionModel.denormalize_actions(fake, normalized)
+
+    assert denormalized.shape == (2, 30, 25)
+    assert denormalized.dtype == torch.float32
+    torch.testing.assert_close(denormalized, torch.ones(2, 30, 25))
+
+
+def test_sft_action_model_sends_only_bfloat16_actions_to_output_transform() -> None:
+    """PI0.5 output transforms must receive FP32 actions without model state."""
+    received = []
+
+    def output_transform(data):
+        received.append((set(data), data["actions"].dtype))
+        return {"actions": data["actions"][..., :25]}
+
+    fake = types.SimpleNamespace()
+    OpenPiPytorchSFTActionModel.setup_output_transform(fake, [output_transform])
+    normalized = torch.zeros(1, 30, 32, dtype=torch.bfloat16)
+
+    denormalized = OpenPiPytorchSFTActionModel.denormalize_actions(fake, normalized)
+
+    assert received == [({"actions"}, np.dtype(np.float32))]
+    assert denormalized.dtype == torch.float32

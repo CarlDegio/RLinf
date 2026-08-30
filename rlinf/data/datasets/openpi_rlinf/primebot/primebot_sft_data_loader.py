@@ -71,8 +71,18 @@ class _TransformedDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         for item in self._dataset:
             task_name = item["task_name"]
+            eval_metadata = {
+                key: item[key]
+                for key in (
+                    "eval_actions",
+                    "eval_valid_steps",
+                    "trajectory_name",
+                )
+                if key in item
+            }
             transformed = self._transform(item)
             transformed["_primebot_task_name"] = task_name
+            transformed.update(eval_metadata)
             yield transformed
 
     def __len__(self) -> int:
@@ -113,11 +123,25 @@ def _collate(items, *, include_task_names: bool = False):
     )
     actions = stack("actions", np.float32)
     if include_task_names:
-        return {
+        batch = {
             "observation": observation,
             "actions": actions,
             "task_names": [item["_primebot_task_name"] for item in items],
         }
+        if "eval_actions" in items[0]:
+            batch.update(
+                {
+                    "eval_actions": stack("eval_actions", np.float32),
+                    "eval_valid_steps": torch.tensor(
+                        [int(item["eval_valid_steps"]) for item in items],
+                        dtype=torch.int64,
+                    ),
+                    "trajectory_names": [
+                        str(item["trajectory_name"]) for item in items
+                    ],
+                }
+            )
+        return batch
     return observation, actions
 
 
@@ -132,6 +156,7 @@ class PrimeBotSftDataConfig:
     task_names: tuple[str, ...]
     num_samples: int
     num_samples_per_rank: tuple[int, ...]
+    eval_action_chunk_size: int | None
 
 
 class PrimeBotSftDataLoader:
@@ -193,6 +218,11 @@ def build_primebot_sft_dataloader(
         dist_world_size=world_size,
         split="eval" if eval_dataset else "train",
         eval_episodes_per_task=int(data_cfg.get("eval_episodes_per_task", 100)),
+        eval_action_chunk_size=(
+            int(data_cfg.eval_action_chunk_size)
+            if eval_dataset and data_cfg.get("eval_action_chunk_size") is not None
+            else None
+        ),
     )
 
     data_kwargs = OmegaConf.select(model_cfg, "openpi_data", default=None)
@@ -249,8 +279,17 @@ def build_primebot_sft_dataloader(
         task_sampling_weights=dataset.task_sampling_weights,
         split=dataset.split,
         task_names=dataset.task_names,
-        num_samples=sum(repository.total_frames for repository in dataset.repositories),
-        num_samples_per_rank=(dataset.eval_rank_frame_counts if eval_dataset else ()),
+        num_samples=(
+            sum(dataset.eval_rank_sample_counts)
+            if eval_dataset
+            else sum(repository.total_frames for repository in dataset.repositories)
+        ),
+        num_samples_per_rank=(dataset.eval_rank_sample_counts if eval_dataset else ()),
+        eval_action_chunk_size=(
+            int(data_cfg.eval_action_chunk_size)
+            if eval_dataset and data_cfg.get("eval_action_chunk_size") is not None
+            else None
+        ),
     )
     logger.info(
         "PrimeBot SFT loader: split=%s, roots=%s, sampling_weights=%s, "
@@ -261,7 +300,7 @@ def build_primebot_sft_dataloader(
         batch_size,
         num_workers,
         action_horizon,
-        dataset.eval_rank_frame_counts if eval_dataset else "infinite",
+        dataset.eval_rank_sample_counts if eval_dataset else "infinite",
     )
     loader = PrimeBotSftDataLoader(torch_loader, resolved)
     return loader, resolved

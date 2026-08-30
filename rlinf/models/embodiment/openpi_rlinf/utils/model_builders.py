@@ -96,6 +96,7 @@ def _build_eval_model(
 
 
 def _build_sft_model(
+    cfg,
     model_cfg,
     model,
     *,
@@ -104,21 +105,31 @@ def _build_sft_model(
 ):
     """Build the SFT variant.
 
-    The observation/action transform is applied upstream in the environment SFT
-    data loader, which routes each frame through the same openpi transform
-    pipeline the eval/RL paths use, so the SFT model holds no processor and no
-    transforms — it just computes the flow-matching loss.
+    The observation/action input transform is applied upstream in the SFT data
+    loader. The wrapper retains only the output transform so standalone dataset
+    evaluation can convert sampled actions back to the environment scale.
     """
     from rlinf.models.embodiment.openpi_rlinf.sft_action_model import (
         OpenPiPytorchSFTActionModel,
     )
+    from rlinf.models.embodiment.openpi_rlinf.transforms_pipeline import (
+        build_openpi_transforms,
+    )
 
-    return OpenPiPytorchSFTActionModel(
+    config_name = str(model_cfg.config_name)
+    _, output_transforms = build_openpi_transforms(
+        cfg.model_path,
+        config_name,
+        data_kwargs=_resolve_data_kwargs(cfg),
+    )
+    sft_model = OpenPiPytorchSFTActionModel(
         model,
         num_steps=num_steps,
         action_env_dim=action_env_dim,
         rlt_cfg=build_rlt_config(model_cfg),
     )
+    sft_model.setup_output_transform(list(output_transforms))
+    return sft_model
 
 
 def _build_rl_model(

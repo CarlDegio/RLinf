@@ -56,6 +56,20 @@ CAMERA_KEY_MAP = {
 }
 
 
+def _build_eval_action_chunks(
+    frame_count: int, *, chunk_size: int
+) -> tuple[tuple[int, int], ...]:
+    """Return non-overlapping ``(start, valid_steps)`` chunks for a trajectory."""
+    if frame_count <= 0:
+        raise ValueError(f"frame_count must be positive, got {frame_count}.")
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be positive, got {chunk_size}.")
+    return tuple(
+        (start, min(chunk_size, frame_count - start))
+        for start in range(0, frame_count, chunk_size)
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class _Episode:
     index: int
@@ -155,6 +169,7 @@ class PrimeBotSftIterableDataset(torch.utils.data.IterableDataset):
         dist_world_size: int,
         split: str = "train",
         eval_episodes_per_task: int = 100,
+        eval_action_chunk_size: int | None = None,
     ) -> None:
         super().__init__()
         if action_horizon <= 0:
@@ -172,6 +187,14 @@ class PrimeBotSftIterableDataset(torch.utils.data.IterableDataset):
             )
         if dist_world_size <= 0 or not 0 <= dist_rank < dist_world_size:
             raise ValueError(f"Invalid distributed rank {dist_rank}/{dist_world_size}.")
+        if eval_action_chunk_size is not None:
+            if split != "eval":
+                raise ValueError("eval_action_chunk_size is only valid for eval data.")
+            if not 0 < eval_action_chunk_size <= action_horizon:
+                raise ValueError(
+                    "eval_action_chunk_size must be in [1, action_horizon], got "
+                    f"{eval_action_chunk_size}/{action_horizon}."
+                )
 
         repositories = []
         for root in roots:
@@ -221,9 +244,14 @@ class PrimeBotSftIterableDataset(torch.utils.data.IterableDataset):
         self._dist_rank = dist_rank
         self._dist_world_size = dist_world_size
         self._split = split
+        self._eval_action_chunk_size = eval_action_chunk_size
         self._eval_assignments = self._build_eval_assignments()
         self._eval_rank_frame_counts = tuple(
             sum(episode.length for _, episode in assignments)
+            for assignments in self._eval_assignments
+        )
+        self._eval_rank_sample_counts = tuple(
+            sum(self._episode_eval_sample_count(episode) for _, episode in assignments)
             for assignments in self._eval_assignments
         )
         if split == "eval" and any(
@@ -241,7 +269,7 @@ class PrimeBotSftIterableDataset(torch.utils.data.IterableDataset):
                 repository.total_frames for repository in self._repositories
             )
         else:
-            self._epoch_num_samples = self._eval_rank_frame_counts[dist_rank]
+            self._epoch_num_samples = self._eval_rank_sample_counts[dist_rank]
 
     @property
     def repositories(self) -> tuple[_TaskRepository, ...]:
@@ -262,6 +290,20 @@ class PrimeBotSftIterableDataset(torch.utils.data.IterableDataset):
     @property
     def eval_rank_frame_counts(self) -> tuple[int, ...]:
         return self._eval_rank_frame_counts
+
+    @property
+    def eval_rank_sample_counts(self) -> tuple[int, ...]:
+        """Number of model inference calls assigned to every distributed rank."""
+        return self._eval_rank_sample_counts
+
+    def _episode_eval_sample_count(self, episode: _Episode) -> int:
+        if self._eval_action_chunk_size is None:
+            return episode.length
+        return len(
+            _build_eval_action_chunks(
+                episode.length, chunk_size=self._eval_action_chunk_size
+            )
+        )
 
     def __len__(self) -> int:
         return self._epoch_num_samples
@@ -387,6 +429,15 @@ class PrimeBotSftIterableDataset(torch.utils.data.IterableDataset):
                 decoders.append(iter(container.decode(video=0)))
 
             offsets = np.arange(self._action_horizon)
+            action_chunks = (
+                dict(
+                    _build_eval_action_chunks(
+                        frame_count, chunk_size=self._eval_action_chunk_size
+                    )
+                )
+                if self._eval_action_chunk_size is not None
+                else None
+            )
             for frame_index in range(frame_count):
                 images = {}
                 for model_key, decoder in zip(CAMERA_KEY_MAP, decoders, strict=True):
@@ -398,6 +449,9 @@ class PrimeBotSftIterableDataset(torch.utils.data.IterableDataset):
                             f"episode={episode.index}, root={repository.root}."
                         ) from exc
 
+                if action_chunks is not None and frame_index not in action_chunks:
+                    continue
+
                 action_indices = np.minimum(frame_index + offsets, frame_count - 1)
                 task_index = int(task_indices[frame_index])
                 try:
@@ -407,13 +461,29 @@ class PrimeBotSftIterableDataset(torch.utils.data.IterableDataset):
                         f"task_index={task_index} is absent from "
                         f"{repository.root / 'meta/tasks.jsonl'}."
                     ) from exc
-                yield {
+                item = {
                     "images": images,
                     "state": states[frame_index],
                     "actions": actions[action_indices],
                     "prompt": prompt,
                     "task_name": repository.root.name,
                 }
+                if action_chunks is not None:
+                    valid_steps = action_chunks[frame_index]
+                    eval_offsets = np.arange(self._eval_action_chunk_size)
+                    eval_indices = np.minimum(
+                        frame_index + eval_offsets, frame_count - 1
+                    )
+                    item.update(
+                        {
+                            "eval_actions": actions[eval_indices].copy(),
+                            "eval_valid_steps": valid_steps,
+                            "trajectory_name": (
+                                f"{repository.root.name}/episode_{episode.index:06d}"
+                            ),
+                        }
+                    )
+                yield item
         finally:
             for container in containers:
                 container.close()

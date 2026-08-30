@@ -51,6 +51,34 @@ def test_low_std_actions_keep_raw_scale_in_both_directions() -> None:
     np.testing.assert_allclose(restored["actions"], [[7.0, 10.0, 20.0]], atol=1.0e-6)
 
 
+def test_action_unnormalization_does_not_require_continuous_state() -> None:
+    """PrimeBot PI0.5 output transforms must operate on actions alone."""
+    norm_stats = {
+        "state": NormStats(
+            mean=np.zeros(89),
+            std=np.ones(89),
+            q01=np.zeros(89),
+            q99=np.ones(89),
+        ),
+        "actions": NormStats(
+            mean=np.zeros(25),
+            std=np.ones(25),
+            q01=np.zeros(25),
+            q99=np.full(25, 2.0),
+        ),
+    }
+    unnormalize = transforms_pipeline.UnnormalizeWithSelectiveActions(
+        norm_stats,
+        use_quantiles=True,
+        action_norm_min_std=0.01,
+    )
+
+    restored = unnormalize({"actions": np.zeros((30, 32), dtype=np.float32)})
+
+    np.testing.assert_allclose(restored["actions"][..., :25], 1.0, atol=1.0e-6)
+    np.testing.assert_allclose(restored["actions"][..., 25:], 0.0, atol=1.0e-6)
+
+
 def test_training_actions_are_clipped_before_selective_normalization() -> None:
     """Targets outside q01/q99 must be clipped before either scale path."""
     norm_stats = {

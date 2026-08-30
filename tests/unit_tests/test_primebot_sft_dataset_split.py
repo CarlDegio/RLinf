@@ -17,6 +17,7 @@
 import json
 from pathlib import Path
 
+from rlinf.data.datasets.openpi_rlinf.primebot import primebot_sft_dataset
 from rlinf.data.datasets.openpi_rlinf.primebot.primebot_sft_dataset import (
     CAMERA_KEY_MAP,
     PrimeBotSftIterableDataset,
@@ -134,3 +135,34 @@ def test_norm_stats_use_the_same_training_split(tmp_path: Path) -> None:
         f"episode_{episode_index:06d}.parquet" for episode_index in range(5)
     ]
     assert frame_count == sum(lengths[:5])
+
+
+def test_chunked_eval_covers_each_trajectory_action_once() -> None:
+    """A wrong stride or tail length would skip or double-count actions."""
+    chunks = primebot_sft_dataset._build_eval_action_chunks(63, chunk_size=25)
+
+    assert chunks == ((0, 25), (25, 25), (50, 13))
+
+
+def test_chunked_eval_length_counts_inference_observations_not_frames(
+    tmp_path: Path,
+) -> None:
+    """Eval progress must count t=0,25,... inference calls for each episode."""
+    root = tmp_path / "task_a"
+    _write_repository(root, [1, 1, 1, 1, 1, 26, 50, 63])
+
+    evaluate = PrimeBotSftIterableDataset(
+        [root],
+        action_horizon=30,
+        task_sampling_weights=None,
+        shuffle=False,
+        seed=42,
+        dist_rank=0,
+        dist_world_size=1,
+        split="eval",
+        eval_episodes_per_task=3,
+        eval_action_chunk_size=25,
+    )
+
+    assert len(evaluate) == 2 + 2 + 3
+    assert evaluate.eval_rank_sample_counts == (7,)

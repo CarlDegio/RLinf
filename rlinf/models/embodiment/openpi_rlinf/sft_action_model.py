@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import torch
 
 from rlinf.models.embodiment.base_policy import ForwardType
@@ -71,6 +72,8 @@ class OpenPiPytorchSFTActionModel(OpenPiPytorchActionModel):
         *,
         train: bool = True,
         return_per_sample_loss: bool = False,
+        return_denormalized_actions: bool = False,
+        rng: torch.Generator | None = None,
     ) -> torch.Tensor | dict[str, torch.Tensor]:
         """Compute the flow-matching SFT loss for one batch.
 
@@ -80,10 +83,18 @@ class OpenPiPytorchSFTActionModel(OpenPiPytorchActionModel):
         padded to the model action dim. Returns the scalar mean of the
         ``(B, action_horizon)`` per-timestep loss from :meth:`Pi0.compute_loss`
         (which samples the flow-matching noise/time internally). Evaluation can
-        request the batch's per-sample means for exact distributed aggregation.
+        request the batch's per-sample means for exact distributed aggregation,
+        or sampled actions converted back to the environment scale for MSE.
         """
         observation, actions = self._unpack_sft_batch(data)
         observation = self._observation_to_device(observation)
+        if return_denormalized_actions:
+            predicted_actions = self.model.sample_actions(
+                observation,
+                num_steps=self.num_steps,
+                rng=rng,
+            )
+            return {"predicted_actions": self.denormalize_actions(predicted_actions)}
         actions = self._actions_to_device(actions)
         if not self.rlt_cfg.use_rlt:
             per_timestep_loss = self.model.compute_loss(
@@ -116,6 +127,29 @@ class OpenPiPytorchSFTActionModel(OpenPiPytorchActionModel):
     def compute_loss(self, data: Any) -> torch.Tensor:
         """Alias kept for interface parity with the old action model."""
         return self.sft_forward(data)
+
+    def setup_output_transform(self, output_transforms: list[Any]) -> None:
+        """Install the deployment output pipeline used by action-MSE eval."""
+        from openpi.transforms import compose
+
+        self._output_transform_fn = compose(output_transforms)
+
+    def denormalize_actions(self, actions: torch.Tensor) -> torch.Tensor:
+        """Convert sampled model actions to the raw 25-D environment scale."""
+        if not hasattr(self, "_output_transform_fn"):
+            raise RuntimeError("SFT action output transform has not been configured.")
+        transformed = []
+        for index in range(actions.shape[0]):
+            sample = {
+                "actions": actions[index]
+                .detach()
+                .to(device="cpu", dtype=torch.float32)
+                .numpy(),
+            }
+            transformed.append(self._output_transform_fn(sample)["actions"])
+        return torch.from_numpy(np.stack(transformed)).to(
+            device=actions.device, dtype=torch.float32
+        )
 
     @staticmethod
     def _unpack_sft_batch(data: Any) -> tuple[Any, Any]:

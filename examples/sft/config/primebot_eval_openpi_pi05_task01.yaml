@@ -1,0 +1,36 @@
+defaults:
+  - primebot_sft_openpi_pi05_task01
+  - _self_
+
+cluster:
+  num_nodes: 1
+  component_placement:
+    # Shard standalone dataset evaluation over all eight local GPUs.
+    actor: 0-7
+
+runner:
+  logger:
+    experiment_name: "primebot_pi05_task01_denormalized_action_mse_eval"
+  max_epochs: -1
+  max_steps: 0
+  val_check_interval: -1
+  save_interval: -1
+
+data:
+  # A null train path makes train_vla_sft.py enter standalone evaluation.
+  train_data_paths: null
+  val_data_paths:
+    - /mnt/workspace/dataset/PrimeBotHouseholdByTask/train/task_01_open_washing_machine
+  eval_episodes_per_task: 100
+  eval_num_workers: 0
+  # Infer at trajectory frames 0, 25, 50, ... and compare each sampled
+  # action chunk with the next non-overlapping raw 25-D action segment.
+  eval_metric: denormalized_action_mse
+  eval_action_chunk_size: 25
+
+actor:
+  eval_batch_size: 1
+  fsdp_config:
+    gradient_checkpointing: false
+  model:
+    precision: bf16
