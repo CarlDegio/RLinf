@@ -146,50 +146,57 @@ class FSDPSftWorker(FSDPModelManager, Worker):
                     is_last_micro_batch=(idx + 1) == self.gradient_accumulation,
                 )
 
-                try:
-                    batch = next(self.data_iter)
-                    self._data_iter_offset += 1
-                except StopIteration:
-                    self._data_epoch += 1
-                    logging.info(
-                        f"[INFO] data_iter exhausted, reset iterator self._data_epoch {self._data_epoch}"
-                    )
-                    forward_set_epoch(self.data_loader, self._data_epoch)
-                    self.data_iter = iter(self.data_loader)
-                    batch = next(self.data_iter)
-                    self._data_iter_offset = 1
+                with self.worker_timer("data"):
+                    try:
+                        batch = next(self.data_iter)
+                        self._data_iter_offset += 1
+                    except StopIteration:
+                        self._data_epoch += 1
+                        logging.info(
+                            f"[INFO] data_iter exhausted, reset iterator self._data_epoch {self._data_epoch}"
+                        )
+                        forward_set_epoch(self.data_loader, self._data_epoch)
+                        self.data_iter = iter(self.data_loader)
+                        batch = next(self.data_iter)
+                        self._data_iter_offset = 1
 
-                loss, step_metrics = self.get_train_model_output(batch)
-                append_to_dict(metrics, step_metrics)
+                with self.worker_timer("forward"):
+                    loss, step_metrics = self.get_train_model_output(batch)
+                    append_to_dict(metrics, step_metrics)
 
                 loss = loss / self.gradient_accumulation
-                with backward_ctx:
-                    self.grad_scaler.scale(loss).backward()
+                with self.worker_timer("backward"):
+                    with backward_ctx:
+                        self.grad_scaler.scale(loss).backward()
 
             # in one step do the optimizer step
-            grad_norm, lr_list = self.optimizer_step()
-            self.optimizer.zero_grad(set_to_none=True)
+            with self.worker_timer("optimizer"):
+                grad_norm, lr_list = self.optimizer_step()
+                self.optimizer.zero_grad(set_to_none=True)
 
-            self.lr_scheduler.step()
-            lr_value = self.optimizer.param_groups[0]["lr"]
-            grad_norm_value = (
-                float(grad_norm) if isinstance(grad_norm, torch.Tensor) else grad_norm
-            )
-            append_to_dict(
-                metrics,
-                {
-                    "learning_rate": lr_value,
-                    "grad_norm": grad_norm_value,
-                },
-            )
+                self.lr_scheduler.step()
+                lr_value = self.optimizer.param_groups[0]["lr"]
+                grad_norm_value = (
+                    float(grad_norm)
+                    if isinstance(grad_norm, torch.Tensor)
+                    else grad_norm
+                )
+                append_to_dict(
+                    metrics,
+                    {
+                        "learning_rate": lr_value,
+                        "grad_norm": grad_norm_value,
+                    },
+                )
 
             if self.global_step > 0 and self.global_step % 1000 == 0:
                 clear_memory()
 
             train_metrics = {key: np.mean(value) for key, value in metrics.items()}
-            train_metrics = all_reduce_dict(
-                train_metrics, op=torch.distributed.ReduceOp.AVG
-            )
+            with self.worker_timer("metrics_reduce"):
+                train_metrics = all_reduce_dict(
+                    train_metrics, op=torch.distributed.ReduceOp.AVG
+                )
 
             return train_metrics
 

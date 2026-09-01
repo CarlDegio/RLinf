@@ -85,5 +85,38 @@ Task-level signals from the simulator.
    * - ``env/reward``
      - Step-level reward (``0`` on intermediate steps, ``1`` on success). The logged value is normalized by episode length, which makes it hard to read as real performance.
 
+SFT Timing Metrics — ``time/``
+-------------------------------
+
+Use these wall-clock metrics to compare where an SFT actor step spends time. The
+actor phase values accumulate across gradient-accumulation micro-batches and use
+the maximum duration across actor ranks.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 66
+
+   * - Metric
+     - Meaning
+   * - ``time/step``
+     - Runner-side duration of the complete step, including scheduled evaluation or checkpoint work.
+   * - ``time/training``
+     - Complete ``run_training`` duration on the slowest actor rank.
+   * - ``time/actor/data``
+     - Time spent fetching training batches and resetting an exhausted data iterator.
+   * - ``time/actor/forward``
+     - Model forward and per-micro-batch metric collection time.
+   * - ``time/actor/backward``
+     - Backward time, including FSDP collectives issued during backward.
+   * - ``time/actor/optimizer``
+     - Gradient unscaling and norm calculation, optimizer update, zeroing gradients, and learning-rate scheduler time.
+   * - ``time/actor/metrics_reduce``
+     - Cross-rank reduction time for the training metrics.
+
+These phase timers use low-overhead CPU wall time without CUDA synchronization.
+CUDA work is asynchronous, so phase boundaries are approximate. FSDP communication
+remains part of ``forward``, ``backward``, or ``optimizer`` rather than a separate,
+non-overlapping communication metric.
+
 See also the :doc:`Logger <../guides/logger>` tutorial for choosing backends (TensorBoard,
 Weights & Biases, SwanLab) and configuring ``runner.logger``.

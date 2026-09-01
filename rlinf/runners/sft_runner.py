@@ -90,6 +90,7 @@ class SFTRunner:
             with self.timer("step"):
                 actor_handle: Handle = self.actor.run_training()
                 actor_metrics = actor_handle.wait()
+                actor_time_metrics = actor_handle.consume_durations()
 
                 self.global_step += 1
 
@@ -118,7 +119,13 @@ class SFTRunner:
                             self._save_checkpoint(is_best=True)
 
             time_metrics = self.timer.consume_durations()
-            time_metrics["training"] = actor_handle.consume_duration()
+            time_metrics["training"] = actor_time_metrics.pop("run_training")
+            time_metrics.update(
+                {
+                    f"actor/{name}": duration
+                    for name, duration in actor_time_metrics.items()
+                }
+            )
             if eval_model:
                 time_metrics["evaluate"] = eval_handle.consume_duration()
             time_metrics = {f"time/{k}": v for k, v in time_metrics.items()}

@@ -83,5 +83,36 @@ rollout 阶段收集的优势与奖励统计量。
    * - ``env/reward``
      - step 级奖励（中间步为 ``0``，成功时为 ``1``）。日志值按回合步数归一化，难以直接反映真实表现。
 
+SFT 时间指标 —— ``time/``
+-------------------------
+
+使用这些 wall-clock 指标比较 SFT actor 的各阶段耗时。actor 阶段指标会累加同一 step
+中所有梯度累积 micro-batch 的耗时，再取所有 actor rank 中的最大值。
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 66
+
+   * - 指标
+     - 含义
+   * - ``time/step``
+     - runner 侧完整 step 的耗时，包括该 step 触发的评估或 checkpoint 工作。
+   * - ``time/training``
+     - 最慢 actor rank 上完整 ``run_training`` 的耗时。
+   * - ``time/actor/data``
+     - 获取训练 batch，以及数据迭代器耗尽后重建迭代器的耗时。
+   * - ``time/actor/forward``
+     - 模型 forward 和收集各 micro-batch 指标的耗时。
+   * - ``time/actor/backward``
+     - backward 耗时，包括 backward 期间发起的 FSDP collective。
+   * - ``time/actor/optimizer``
+     - 梯度反缩放与范数计算、optimizer 更新、梯度清零和学习率调度的耗时。
+   * - ``time/actor/metrics_reduce``
+     - 跨 rank 汇总训练指标的耗时。
+
+这些阶段计时使用低开销的 CPU wall time，并且不会执行 CUDA 同步。由于 CUDA
+任务是异步的，阶段边界只能作为近似值。FSDP 通信仍计入 ``forward``、``backward``
+或 ``optimizer``，不会另行记录一个可能与这些阶段重叠的通信指标。
+
 如何选择日志后端（TensorBoard、Weights & Biases、SwanLab）以及配置 ``runner.logger``，参见
 :doc:`日志 <../guides/logger>` 教程。
