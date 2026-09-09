@@ -1,0 +1,44 @@
+# Independent inference configuration; does not inherit training overrides.
+dataset_root: /mnt/workspace/dataset/PrimeBotHouseholdBimanualManipulationChallengeData/validation_data/robot_data
+datasets:
+  - fold_cloth_batch2_noise_valid
+  - full_task_batch1_noise_valid
+gpus: "0,1,2,3,4,5,6,7"
+chunk_size: 25
+seed: 42
+cpu_threads: 2
+tasks:
+  task01:
+    checkpoint_root: logs/primebot_sft_openpi_pi05_task01-4nodes/primebot_pi05_task01_open_washing_machine_sft/checkpoints
+    asset_id: primebot/task_01_open_washing_machine
+  task02:
+    checkpoint_root: logs/primebot_sft_openpi_pi05_task02-4nodes/primebot_pi05_task02_close_washing_machine_sft/checkpoints
+    asset_id: primebot/task_02_close_washing_machine
+  task03:
+    checkpoint_root: logs/primebot_sft_openpi_pi05_task03-4nodes/primebot_pi05_task03_put_items_in_washer_sft/checkpoints
+    asset_id: primebot/task_03_put_items_in_washer
+  task09:
+    checkpoint_root: logs/primebot_sft_openpi_pi05_task09-4nodes/primebot_pi05_task09_fold_clothing_sft/checkpoints
+    asset_id: primebot/task_09_fold_clothing
+model:
+  precision: bf16
+  model_type: openpi_rlinf
+  pi05: true
+  num_action_chunks: 30
+  action_dim: 25
+  num_steps: 5
+  add_value_head: false
+  openpi:
+    task: sft
+    config_name: pi05_primebot
+    num_images_in_input: 3
+    action_chunk: 30
+    action_env_dim: 25
+    model_action_dim: 32
+    paligemma_variant: gemma_2b
+    action_expert_variant: gemma_300m
+    max_token_len: 256
+    discrete_state_input: false
+    assets_dir: /mnt/workspace/base_model/pi05_base_rlinf_torch
+  openpi_data:
+    action_norm_min_std: 0.01

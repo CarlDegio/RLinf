@@ -28,5 +28,5 @@ export RAY_ADDRESS=auto
 #再执行训练：
 
 OPENPI_DATA_HOME=/mnt/workspace/base_model/pi05_base_rlinf_torch/openpi_cache \
-bash examples/sft/run_vla_sft.sh primebot_sft_openpi_pi05_task01
+bash examples/sft/run_vla_sft.sh primebot_sft_openpi_pi05_task03
 
