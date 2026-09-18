@@ -74,6 +74,7 @@ def get_model(cfg: Any, torch_dtype: Any = None) -> Any:
         "pi05": pi05,
         "action_horizon": int(cfg.num_action_chunks),
         "action_dim": int(model_cfg.model_action_dim),
+        "loss_action_dim": OmegaConf.select(model_cfg, "loss_action_dim", default=None),
         "paligemma_variant": str(model_cfg.paligemma_variant),
         "action_expert_variant": str(model_cfg.action_expert_variant),
         "dtype": "bfloat16",

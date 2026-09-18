@@ -28,6 +28,29 @@ JOINT_POSITION_SLICE = slice(0, 22)
 WHEEL_VELOCITY_SLICE = slice(83, 86)
 
 
+def primebot_joint_delta_actions(actions: np.ndarray, state: np.ndarray) -> np.ndarray:
+    """Subtract observation-time joints from every step of a compact action chunk.
+
+    ``state`` is raw 89-D proprioception, with no normalization or model padding.
+    Wheel velocities remain unchanged. Neither input array is mutated.
+    """
+    actions = np.array(actions, dtype=np.float32, copy=True)
+    state = np.asarray(state, dtype=np.float32)
+    if (
+        actions.ndim < 2
+        or state.ndim < 1
+        or actions.shape[-1] != COMPACT_ACTION_DIM
+        or state.shape[-1] != RAW_ACTION_DIM
+        or actions.shape[:-2] != state.shape[:-1]
+    ):
+        raise ValueError(
+            f"Expected [..., H, 25] actions and [..., 89] state, got "
+            f"{actions.shape} and {state.shape}."
+        )
+    actions[..., :22] -= state[..., None, :22]
+    return actions
+
+
 def pack_primebot_action(action: np.ndarray) -> np.ndarray:
     """Pack the 25 controlled PrimeBot dimensions from an 89-D raw action."""
     action = np.asarray(action)
@@ -76,6 +99,8 @@ def _as_uint8_hwc(image: np.ndarray) -> np.ndarray:
 class PrimeBotInputs(transforms.DataTransformFn):
     """Convert PrimeBot observations to the canonical three-camera Pi0 input."""
 
+    action_space: str = "absolute"
+
     expected_cameras: ClassVar[tuple[str, ...]] = (
         "base_0_rgb",
         "left_wrist_0_rgb",
@@ -83,6 +108,10 @@ class PrimeBotInputs(transforms.DataTransformFn):
     )
 
     def __call__(self, data: dict) -> dict:
+        if self.action_space not in {"absolute", "joint_delta"}:
+            raise ValueError(
+                f"Unsupported PrimeBot action_space: {self.action_space!r}"
+            )
         images = data["images"]
         missing = set(self.expected_cameras) - set(images)
         extra = set(images) - set(self.expected_cameras)
@@ -101,9 +130,9 @@ class PrimeBotInputs(transforms.DataTransformFn):
                 name: _as_uint8_hwc(images[name]) for name in self.expected_cameras
             },
             "image_mask": dict.fromkeys(self.expected_cameras, np.True_),
-            # Keep all 89 state dimensions here. Pi0.5 normalizes and tokenizes
-            # this value before the model-shape transform replaces the continuous
-            # placeholder with 32 dimensions.
+            # Delta supervision uses raw joints here. State is subsequently
+            # normalized/cropped as an interface placeholder, but is not encoded
+            # into the Pi0.5 prompt when discrete_state_input=False.
             "state": state,
         }
         if "actions" in data:
@@ -115,7 +144,11 @@ class PrimeBotInputs(transforms.DataTransformFn):
                     "PrimeBot actions must be raw 89-D or compact 25-D, got "
                     f"{actions.shape}."
                 )
-            result["actions"] = actions
+            result["actions"] = (
+                primebot_joint_delta_actions(actions, state)
+                if self.action_space == "joint_delta"
+                else actions
+            )
         if "prompt" in data:
             result["prompt"] = data["prompt"]
         return result
@@ -125,11 +158,27 @@ class PrimeBotInputs(transforms.DataTransformFn):
 class PrimeBotOutputs(transforms.DataTransformFn):
     """Return the 25 controlled action dimensions after unnormalization."""
 
+    action_space: str = "absolute"
+
     def __call__(self, data: dict) -> dict:
-        return {
-            **data,
-            "actions": np.asarray(data["actions"])[..., :COMPACT_ACTION_DIM],
-        }
+        actions = np.asarray(data["actions"])[..., :COMPACT_ACTION_DIM]
+        if self.action_space == "joint_delta":
+            if "reference_state" not in data:
+                raise ValueError(
+                    "PrimeBot joint_delta output requires raw reference_state "
+                    "from the chunk's observation to recover absolute joints. "
+                    "The current state-free SFT action export does not supply it."
+                )
+            # Use an explicit raw-state key: the model's cropped/normalized
+            # Observation.state is not a valid reference for this inverse.
+            actions = primebot_joint_delta_actions(
+                actions, -np.asarray(data["reference_state"])
+            )
+        elif self.action_space != "absolute":
+            raise ValueError(
+                f"Unsupported PrimeBot action_space: {self.action_space!r}"
+            )
+        return {**data, "actions": actions}
 
 
 @dataclasses.dataclass(frozen=True)

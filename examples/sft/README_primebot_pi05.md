@@ -91,7 +91,75 @@ normalization statistics before MSE is computed in the original 25-D action
 scale. The job logs aggregate `eval/action_mse`, per-dimension MSE,
 per-trajectory MSE, and evaluated trajectory/chunk/action counts.
 
+## Task 03 Joint-Delta Experiment
+
+Use `primebot_sft_openpi_pi05_task03_delta` for joint-delta supervision on Task 03.
+For an observation at frame `t`, each future target is
+`action[t+k, 0:22] - observation.state[t, 0:22]`, for `k=0..29`.
+All 30 steps share the same observation-time reference. The model still receives
+only images and instruction tokens (`discrete_state_input: false`, 256 tokens).
+Raw state is used by preprocessing to construct the targets.
+
+The 25-D data layout and pretrained 32-D model head are retained. Wheel velocities
+remain in data dimensions `22:25`, but `actor.model.openpi.loss_action_dim: 22`
+restricts the flow-matching MSE to the first 22 dimensions. Wheel and padding
+dimensions contribute neither loss nor direct output gradients. The loss is
+averaged over 22 dimensions, so its numerical scale is not directly comparable
+with the previous 32-D loss. Wheel outputs are unsupervised.
+
+Compute the experiment's statistics once, from the repository root:
+
+```bash
+./.venv/bin/python -m toolkits.lerobot.calculate_primebot_delta_norm_stats
+```
+
+This reads every training observation's full 30-step chunk from parquet, excludes
+the globally last 100 episodes, and repeats the last action at episode tails.
+It computes state and action statistics in the same scan, without decoding video.
+Action statistics are computed before clipping, using OpenPI's streaming moments
+and approximate histogram quantiles. Files are saved under
+`/mnt/workspace/base_model/pi05_base_rlinf_torch/primebot/task_03_put_items_in_washer_delta_h30/`.
+The manifest records the split, horizon, counts and hashes. Existing files are
+not overwritten; use a new `--output-dir` and matching config asset path to rerun.
+
+The existing `action_norm_min_std: 0.01` rule uses these new delta statistics.
+Targets are clipped to the delta q01/q99 range; low-std dimensions retain that
+clipped delta scale, and the remaining dimensions use quantile normalization.
+
+The delta experiment trains for 10,000 optimizer steps with global batch size
+512. The learning rate warms up for 1,000 steps to `2.5e-5`, then cosine-decays
+to `2.5e-6` at step 10,000. Both `runner.max_steps` and
+`actor.optim.total_training_steps` are set to 10,000. With
+`runner.save_interval: 2500`, checkpoints are saved at steps 2,500, 5,000, 7,500,
+and 10,000.
+
+Both fine-tuning launchers on this branch default to the delta config:
+
+```bash
+# One local machine, eight GPUs.
+bash finetune.sh
+
+# Submit from the Lingjun management machine: one master and three worker Pods.
+kubectl create -f pytorchjob-erdma-lingjun.yaml
+```
+
+Each Pod invokes `finetune_pods.sh` once. The Ray head launches training after all
+32 GPUs join (four nodes with eight GPUs each). Use
+`pytorchjob-erdma-lingjun.yaml` for Lingjun's node selector, host networking and
+`rdma/hca` resources. The job name is `liuzihao-pi05-sft-4node-task3-delta`; the
+manifest sets `CONFIG_NAME=primebot_sft_openpi_pi05_task03_delta` on both Pod types.
+The launchers also accept `CONFIG_NAME` as an environment override.
+
+This experiment is prepared for SFT and flow-loss evaluation. Converting sampled
+deltas back to absolute joint commands requires the raw observation-time state
+as `reference_state` in the output transform. Current action-MSE evaluation and
+official validation export do not pass it, so they cannot yet export this model's
+absolute actions. In particular, a zero state placeholder cannot supply this
+reference. The delta output transform raises an error when it is missing.
+
 ## Official validation action export
+
+The exporter below currently uses the absolute-action configurations.
 
 Use the independent inference launcher for the two official validation sets:
 `fold_cloth_batch2_noise_valid` and `full_task_batch1_noise_valid`.

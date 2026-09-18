@@ -258,7 +258,9 @@ class OpenPiPytorchSFTActionModel(OpenPiPytorchActionModel):
         v_t = self.model.velocity_from_suffix(
             suffix_out[:, -self.model.action_horizon :]
         )
-        loss = torch.mean(torch.square(v_t - u_t), dim=-1)
+        loss_action_dim = self.model.loss_action_dim
+        residual = v_t[..., :loss_action_dim] - u_t[..., :loss_action_dim]
+        loss = torch.mean(torch.square(residual), dim=-1)
         prefix_out, prefix_mask = self._select_rlt_prefix_embeddings(
             prefix_out.detach(), prefix_mask, observation.tokenized_prompt
         )

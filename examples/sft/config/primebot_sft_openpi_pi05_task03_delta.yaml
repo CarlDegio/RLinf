@@ -1,0 +1,26 @@
+defaults:
+  - primebot_sft_openpi_pi05_task03
+  - _self_
+
+runner:
+  max_steps: 10000
+  save_interval: 2500
+  logger:
+    experiment_name: "primebot_pi05_task03_joint_delta_sft"
+
+actor:
+  global_batch_size: 512
+  optim:
+    total_training_steps: 10000
+    lr_warmup_steps: 1000
+  model:
+    openpi:
+      asset_id: primebot/task_03_put_items_in_washer_delta_h30
+      discrete_state_input: false
+      # Mean flow-matching MSE over the 22 joints only. Exclude wheel velocities
+      # (22:25) and model padding (25:32) without changing the pretrained head.
+      loss_action_dim: 22
+    openpi_data:
+      # For every future step k: action[t+k, :22] - observation.state[t, :22].
+      action_space: joint_delta
+      action_norm_min_std: 0.01

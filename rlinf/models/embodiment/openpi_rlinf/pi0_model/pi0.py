@@ -87,6 +87,7 @@ class Pi0(model.BaseModel):
     def __init__(self, config: Pi0Config):
         super().__init__(config.action_dim, config.action_horizon, config.max_token_len)
         self.pi05 = config.pi05
+        self.loss_action_dim = config.loss_action_dim
         self.pcd = config.pcd
         self.embed_dtype = _str_to_dtype(config.dtype)
         self._config = config
@@ -384,7 +385,10 @@ class Pi0(model.BaseModel):
 
         v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
 
-        return torch.mean(torch.square(v_t - u_t), dim=-1)
+        # Exclude unsupervised commands/padding before reducing the action axis.
+        # A None stop keeps the historical full-head objective.
+        residual = v_t[..., : self.loss_action_dim] - u_t[..., : self.loss_action_dim]
+        return torch.mean(torch.square(residual), dim=-1)
 
     def build_prefix_cache(
         self, observation: model.Observation

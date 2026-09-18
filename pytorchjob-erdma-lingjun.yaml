@@ -16,7 +16,7 @@
 apiVersion: kubeflow.org/v1
 kind: PyTorchJob
 metadata:
-  name: &run-name liuzihao-pi05-sft-3node-task3
+  name: &run-name liuzihao-pi05-sft-4node-task3-delta
   namespace: ai-training
   labels:
     app: pytorchjob
@@ -26,7 +26,7 @@ metadata:
     release: *run-name
   annotations:
     arena.kubeflow.org/username: system:serviceaccount:kube-system:liuzihao-admin
-    requestGPUsOfJobOwner: "24"
+    requestGPUsOfJobOwner: "32"
 spec:
   backoffLimit: 0
   cleanPodPolicy: Running
@@ -42,12 +42,12 @@ spec:
             chart: pytorchjob-0.5.2
             createdBy: PyTorchJob
             heritage: Helm
-            pod-group.scheduling.sigs.k8s.io/min-available: "3"
+            pod-group.scheduling.sigs.k8s.io/min-available: "4"
             pod-group.scheduling.sigs.k8s.io/name: *run-name
             release: *run-name
           annotations:
             arena.kubeflow.org/username: system:serviceaccount:kube-system:liuzihao-admin
-            requestGPUsOfJobOwner: "24"
+            requestGPUsOfJobOwner: "32"
         spec:
           hostNetwork: true
           dnsPolicy: ClusterFirstWithHostNet
@@ -78,6 +78,8 @@ spec:
                   echo "memlock soft=$(ulimit -Sl), hard=$(ulimit -Hl)"
                   exec bash /mnt/workspace/liuzihao/project/RLinf/finetune_pods.sh
               env:
+                - name: CONFIG_NAME
+                  value: primebot_sft_openpi_pi05_task03_delta
                 - name: NCCL_DEBUG
                   value: INFO
                 - name: NCCL_DEBUG_SUBSYS
@@ -104,7 +106,7 @@ spec:
                 - name: gpus
                   value: "8"
                 - name: workers
-                  value: "3"
+                  value: "4"
               resources:
                 requests:
                   rdma/hca: "1"
@@ -127,7 +129,7 @@ spec:
                 sizeLimit: 128Gi
 
     Worker:
-      replicas: 2
+      replicas: 3
       restartPolicy: Never
       template:
         metadata:
@@ -137,12 +139,12 @@ spec:
             chart: pytorchjob-0.5.2
             createdBy: PyTorchJob
             heritage: Helm
-            pod-group.scheduling.sigs.k8s.io/min-available: "3"
+            pod-group.scheduling.sigs.k8s.io/min-available: "4"
             pod-group.scheduling.sigs.k8s.io/name: *run-name
             release: *run-name
           annotations:
             arena.kubeflow.org/username: system:serviceaccount:kube-system:liuzihao-admin
-            requestGPUsOfJobOwner: "24"
+            requestGPUsOfJobOwner: "32"
         spec:
           hostNetwork: true
           dnsPolicy: ClusterFirstWithHostNet
@@ -173,6 +175,8 @@ spec:
                   echo "memlock soft=$(ulimit -Sl), hard=$(ulimit -Hl)"
                   exec bash /mnt/workspace/liuzihao/project/RLinf/finetune_pods.sh
               env:
+                - name: CONFIG_NAME
+                  value: primebot_sft_openpi_pi05_task03_delta
                 - name: NCCL_DEBUG
                   value: INFO
                 - name: NCCL_DEBUG_SUBSYS
@@ -199,7 +203,7 @@ spec:
                 - name: gpus
                   value: "8"
                 - name: workers
-                  value: "3"
+                  value: "4"
               resources:
                 requests:
                   rdma/hca: "1"

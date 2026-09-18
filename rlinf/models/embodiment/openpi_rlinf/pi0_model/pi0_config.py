@@ -31,6 +31,8 @@ class Pi0Config(model.BaseModelConfig):
     pointnet_variant: pointnet.Variant = "pcd"
 
     action_dim: int = 32
+    # Optional supervised prefix; None preserves loss over the full action head.
+    loss_action_dim: int | None = None
     action_horizon: int = 50
     max_token_len: int = 48
 
@@ -39,6 +41,14 @@ class Pi0Config(model.BaseModelConfig):
     pcd: bool = False
 
     def __post_init__(self):
+        if self.loss_action_dim is not None and (
+            type(self.loss_action_dim) is not int
+            or not 0 < self.loss_action_dim <= self.action_dim
+        ):
+            raise ValueError(
+                f"loss_action_dim must be an integer in [1, {self.action_dim}] "
+                f"or None, got {self.loss_action_dim!r}."
+            )
         if self.pi05 and self.max_token_len == 48:
             object.__setattr__(self, "max_token_len", 200)
         if self.discrete_state_input is None:

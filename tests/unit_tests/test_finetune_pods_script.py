@@ -21,6 +21,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT = _REPO_ROOT / "finetune_pods.sh"
@@ -275,3 +276,54 @@ def test_arena_guides_launch_one_script_process_per_pod() -> None:
         content = guide.read_text()
         assert "--nproc-per-node=1" in content
         assert "--nproc-per-node=8" not in content
+
+
+@pytest.mark.parametrize("role", ["Master", "Worker"])
+def test_lingjun_manifest_launches_delta_on_four_nodes(
+    pod_runtime: dict[str, str], role: str
+) -> None:
+    """Catch manifest topology/config drifting from the actual Pod launcher."""
+    manifest = yaml.safe_load(
+        (_REPO_ROOT / "pytorchjob-erdma-lingjun.yaml").read_text()
+    )
+    replicas = manifest["spec"]["pytorchReplicaSpecs"]
+    num_nodes = sum(replica["replicas"] for replica in replicas.values())
+    template = replicas[role]["template"]
+    container = template["spec"]["containers"][0]
+    env = {item["name"]: item["value"] for item in container["env"] if "value" in item}
+    rank = "0" if role == "Master" else "1"
+    result = _run_script(
+        pod_runtime,
+        **env,
+        PET_NODE_RANK=rank,
+        PET_NNODES=str(num_nodes),
+        PET_MASTER_ADDR="pi05-master-0",
+        POD_IP="10.0.0.1" if role == "Master" else "10.0.0.2",
+        RANK=rank,
+        FAKE_RAY_STATUS="ready" if role == "Master" else "down",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert num_nodes == 4
+    assert env["CONFIG_NAME"] == "primebot_sft_openpi_pi05_task03_delta"
+    assert int(env["workers"]) == num_nodes
+    assert (
+        int(
+            template["metadata"]["labels"][
+                "pod-group.scheduling.sigs.k8s.io/min-available"
+            ]
+        )
+        == num_nodes
+    )
+    for metadata in (manifest["metadata"], template["metadata"]):
+        assert int(metadata["annotations"]["requestGPUsOfJobOwner"]) == 32
+    assert container["resources"]["limits"]["nvidia.com/gpu"] == "8"
+    assert template["spec"]["hostNetwork"] is True
+    assert template["spec"]["nodeSelector"]["alibabacloud.com/lingjun-worker"] == "true"
+    calls = Path(pod_runtime["CALL_LOG"]).read_text()
+    if role == "Master":
+        assert "--config-name primebot_sft_openpi_pi05_task03_delta" in calls
+        assert "cluster.num_nodes=4" in calls
+        assert calls.count("train_vla_sft.py") == 1
+    else:
+        assert "train_vla_sft.py" not in calls

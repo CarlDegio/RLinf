@@ -30,10 +30,11 @@ from rlinf.models.embodiment.openpi.policies import primebot_policy
 
 @dataclasses.dataclass(frozen=True)
 class LeRobotPrimeBotDataConfig(DataConfigFactory):
-    """Configure absolute-action PrimeBot transforms for Pi0.5."""
+    """Configure absolute or observation-relative PrimeBot actions for Pi0.5."""
 
     use_quantile_norm: bool = True
     action_norm_min_std: float = 0.01
+    action_space: str = "absolute"
 
     @override
     def create(
@@ -43,9 +44,13 @@ class LeRobotPrimeBotDataConfig(DataConfigFactory):
             raise ValueError(
                 "PrimeBot currently supports only the Pi0.5 transform path."
             )
+        if self.action_space not in {"absolute", "joint_delta"}:
+            raise ValueError(
+                f"Unsupported PrimeBot action_space: {self.action_space!r}"
+            )
         data_transforms = _transforms.Group(
-            inputs=[primebot_policy.PrimeBotInputs()],
-            outputs=[primebot_policy.PrimeBotOutputs()],
+            inputs=[primebot_policy.PrimeBotInputs(action_space=self.action_space)],
+            outputs=[primebot_policy.PrimeBotOutputs(action_space=self.action_space)],
         )
         # This is intentionally explicit instead of ModelTransformFactory: its
         # generic PadStatesAndActions rejects a state wider than action_dim. The
