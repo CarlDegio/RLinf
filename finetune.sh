@@ -5,7 +5,7 @@ set -o pipefail
 set -euo pipefail
 
 REPO_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_NAME="${CONFIG_NAME:-primebot_sft_openpi_pi05_task03_delta}"
+CONFIG_NAME="${CONFIG_NAME:-primebot_sft_openpi_pi05_task02_delta}"
 cd "${REPO_PATH}"
 source "${REPO_PATH}/.venv/bin/activate"
 

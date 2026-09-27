@@ -1,0 +1,26 @@
+defaults:
+  - primebot_sft_openpi_pi05_task01
+  - _self_
+
+runner:
+  max_steps: 10000
+  save_interval: 5000
+  logger:
+    experiment_name: "primebot_pi05_task01_joint_delta_sft"
+
+actor:
+  global_batch_size: 512
+  optim:
+    total_training_steps: 10000
+    lr_warmup_steps: 1000
+  model:
+    openpi:
+      # Compute this task's delta statistics before training; do not reuse absolute stats.
+      asset_id: primebot/task_01_open_washing_machine_delta_h30
+      discrete_state_input: false
+      # Supervise joints only; exclude wheel velocities (22:25) and padding (25:32).
+      loss_action_dim: 22
+    openpi_data:
+      # For every future step k: action[t+k, :22] - observation.state[t, :22].
+      action_space: joint_delta
+      action_norm_min_std: 0.01

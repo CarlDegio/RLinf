@@ -133,7 +133,33 @@ to `2.5e-6` at step 10,000. Both `runner.max_steps` and
 `runner.save_interval: 2500`, checkpoints are saved at steps 2,500, 5,000, 7,500,
 and 10,000.
 
-Both fine-tuning launchers on this branch default to the delta config:
+Select Task03 explicitly when using the local launcher:
+
+```bash
+# One local machine, eight GPUs.
+CONFIG_NAME=primebot_sft_openpi_pi05_task03_delta bash finetune.sh
+```
+
+This experiment is prepared for SFT and flow-loss evaluation. Converting sampled
+deltas back to absolute joint commands requires the raw observation-time state
+as `reference_state` in the output transform. Current action-MSE evaluation and
+official validation export do not pass it, so they cannot yet export this model's
+absolute actions. In particular, a zero state placeholder cannot supply this
+reference. The delta output transform raises an error when it is missing.
+
+## Task 01 and Task 02 Joint-Delta Experiments
+
+Use `primebot_sft_openpi_pi05_task01_delta` or
+`primebot_sft_openpi_pi05_task02_delta` for the same 22-joint delta objective on
+the corresponding task. Both use global batch size 512, 1,000 warmup steps and
+10,000 total steps, with checkpoints at steps 5,000 and 10,000. Their independent
+norm assets are `primebot/task_01_open_washing_machine_delta_h30` and
+`primebot/task_02_close_washing_machine_delta_h30` under the shared model directory.
+To generate a task's statistics, pass its dataset directory as `--task-root` and
+its matching norm asset directory as `--output-dir` to
+`toolkits.lerobot.calculate_primebot_delta_norm_stats`.
+
+The launchers and Lingjun manifest currently select **Task02 delta**:
 
 ```bash
 # One local machine, eight GPUs.
@@ -144,18 +170,10 @@ kubectl create -f pytorchjob-erdma-lingjun.yaml
 ```
 
 Each Pod invokes `finetune_pods.sh` once. The Ray head launches training after all
-32 GPUs join (four nodes with eight GPUs each). Use
-`pytorchjob-erdma-lingjun.yaml` for Lingjun's node selector, host networking and
-`rdma/hca` resources. The job name is `liuzihao-pi05-sft-4node-task3-delta`; the
-manifest sets `CONFIG_NAME=primebot_sft_openpi_pi05_task03_delta` on both Pod types.
-The launchers also accept `CONFIG_NAME` as an environment override.
-
-This experiment is prepared for SFT and flow-loss evaluation. Converting sampled
-deltas back to absolute joint commands requires the raw observation-time state
-as `reference_state` in the output transform. Current action-MSE evaluation and
-official validation export do not pass it, so they cannot yet export this model's
-absolute actions. In particular, a zero state placeholder cannot supply this
-reference. The delta output transform raises an error when it is missing.
+32 GPUs join. The job name is `liuzihao-pi05-sft-4node-task2-delta`; both Pod types
+set `CONFIG_NAME=primebot_sft_openpi_pi05_task02_delta`. To switch tasks, override
+`CONFIG_NAME` for a local launcher; for Lingjun, change it in both Pod templates
+and give the job a matching name before submitting.
 
 ## Official validation action export
 

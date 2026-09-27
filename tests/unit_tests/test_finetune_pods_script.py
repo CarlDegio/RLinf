@@ -142,6 +142,7 @@ def test_head_starts_one_ray_cluster_and_launches_training_once(
         "--node-ip-address=10.0.0.1 --port=23456" in calls
     )
     assert "train_vla_sft.py" in calls
+    assert "--config-name primebot_sft_openpi_pi05_task02_delta" in calls
     assert "cluster.num_nodes=4" in calls
     assert calls.count("train_vla_sft.py") == 1
 
@@ -305,7 +306,7 @@ def test_lingjun_manifest_launches_delta_on_four_nodes(
 
     assert result.returncode == 0, result.stderr
     assert num_nodes == 4
-    assert env["CONFIG_NAME"] == "primebot_sft_openpi_pi05_task03_delta"
+    assert env["CONFIG_NAME"] == "primebot_sft_openpi_pi05_task02_delta"
     assert int(env["workers"]) == num_nodes
     assert (
         int(
@@ -322,7 +323,7 @@ def test_lingjun_manifest_launches_delta_on_four_nodes(
     assert template["spec"]["nodeSelector"]["alibabacloud.com/lingjun-worker"] == "true"
     calls = Path(pod_runtime["CALL_LOG"]).read_text()
     if role == "Master":
-        assert "--config-name primebot_sft_openpi_pi05_task03_delta" in calls
+        assert "--config-name primebot_sft_openpi_pi05_task02_delta" in calls
         assert "cluster.num_nodes=4" in calls
         assert calls.count("train_vla_sft.py") == 1
     else:

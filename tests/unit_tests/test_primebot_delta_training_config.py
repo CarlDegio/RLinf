@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Behavioral checks for the Task03 delta training budget and LR schedule."""
+"""Behavioral checks for the PrimeBot delta training budgets and LR schedules."""
 
 from pathlib import Path
 
@@ -24,16 +24,26 @@ from rlinf.hybrid_engines.fsdp.utils import get_lr_scheduler
 from rlinf.utils.runner_utils import check_progress
 
 
-@pytest.fixture
-def delta_config():
+@pytest.fixture(
+    params=[
+        ("01", [5000, 10000]),
+        ("02", [5000, 10000]),
+        ("03", [2500, 5000, 7500, 10000]),
+    ],
+    ids=["task01", "task02", "task03"],
+)
+def delta_config(request):
+    task, saved_steps = request.param
     config_dir = Path(__file__).resolve().parents[2] / "examples/sft/config"
     with initialize_config_dir(version_base="1.1", config_dir=str(config_dir)):
-        return compose(config_name="primebot_sft_openpi_pi05_task03_delta")
+        cfg = compose(config_name=f"primebot_sft_openpi_pi05_task{task}_delta")
+    return cfg, saved_steps
 
 
-def test_delta_training_saves_every_2500_steps_and_stops_at_10000(delta_config) -> None:
+def test_delta_training_saves_on_schedule_and_stops_at_10000(delta_config) -> None:
     """Catch a wrong training budget, save cadence, or missing final checkpoint."""
-    runner = delta_config.runner
+    cfg, expected_saved_steps = delta_config
+    runner = cfg.runner
     saved_steps = []
     finished_steps = []
     for step in range(1, 10001):
@@ -44,15 +54,16 @@ def test_delta_training_saves_every_2500_steps_and_stops_at_10000(delta_config) 
             saved_steps.append(step)
         if done:
             finished_steps.append(step)
-    assert saved_steps == [2500, 5000, 7500, 10000]
+    assert saved_steps == expected_saved_steps
     assert finished_steps == [10000]
-    assert delta_config.actor.global_batch_size == 512
-    assert 512 % (delta_config.actor.micro_batch_size * 32) == 0
+    assert cfg.actor.global_batch_size == 512
+    assert 512 % (cfg.actor.micro_batch_size * 32) == 0
 
 
 def test_delta_lr_warms_up_then_finishes_decay_at_step_10000(delta_config) -> None:
     """Catch scheduler/runner budgets diverging or warmup changing accidentally."""
-    cfg = delta_config.actor.optim
+    config, _ = delta_config
+    cfg = config.actor.optim
     optimizer = torch.optim.SGD([torch.nn.Parameter(torch.zeros(()))], lr=cfg.lr)
     scheduler = get_lr_scheduler(
         lr_scheduler=cfg.lr_scheduler,
